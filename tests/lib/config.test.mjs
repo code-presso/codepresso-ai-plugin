@@ -86,26 +86,11 @@ describe('config.mjs', () => {
     it('preserves all default sections', () => {
       const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
 
-      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'qa', 'excludePatterns'];
+      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'excludePatterns'];
       for (const section of expectedSections) {
         assert(config.hasOwnProperty(section), `Missing section: ${section}`);
       }
     });
 
-    it('returns QA config defaults', () => {
-      const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
-
-      assert.strictEqual(config.qa.enabled, true);
-      assert(Array.isArray(config.qa.dimensions));
-      assert.strictEqual(config.qa.dimensions.length, 5);
-      assert(config.qa.dimensions.includes('quality'));
-      assert(config.qa.dimensions.includes('security'));
-      assert(config.qa.dimensions.includes('testing'));
-      assert(config.qa.dimensions.includes('documentation'));
-      assert(config.qa.dimensions.includes('performance'));
-      assert.strictEqual(config.qa.minScoreThreshold, 5);
-      assert.strictEqual(config.qa.postToPr, true);
-      assert.strictEqual(config.qa.model, 'claude-haiku-4-5-20251001');
-    });
   });
 });
