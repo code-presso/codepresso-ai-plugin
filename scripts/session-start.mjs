@@ -9,6 +9,7 @@ import { readStdin } from './lib/stdin.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit } from './lib/git-utils.mjs';
+import { fetchNotionTasks } from './lib/notion-tasks.mjs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -64,23 +65,29 @@ async function main() {
     ensureStateDir();
     writeFileSync(SESSION_FILE, JSON.stringify(sessionState, null, 2), 'utf-8');
 
+    // Build context parts
+    const contextParts = [];
+
     if (pr) {
-      process.stdout.write(JSON.stringify({
-        continue: true,
-        hookSpecificOutput: {
-          hookEventName: 'SessionStart',
-          additionalContext: `[Codepresso] PR #${pr.number} detected on branch \`${branch}\`. Prompts will be logged.`,
-        },
-      }));
+      contextParts.push(`[Codepresso] PR #${pr.number} detected on branch \`${branch}\`. Prompts will be logged.`);
     } else {
-      process.stdout.write(JSON.stringify({
-        continue: true,
-        hookSpecificOutput: {
-          hookEventName: 'SessionStart',
-          additionalContext: `[Codepresso] Branch \`${branch}\` — no open PR found. Prompt logging disabled.`,
-        },
-      }));
+      contextParts.push(`[Codepresso] Branch \`${branch}\` — no open PR found. Prompt logging disabled.`);
     }
+
+    // Fetch Notion tasks (non-blocking, timeout-protected)
+    try {
+      const taskList = await fetchNotionTasks();
+      if (taskList) {
+        contextParts.push(taskList);
+      }
+    } catch {
+      // Notion fetch failed — skip silently
+    }
+
+    process.stdout.write(JSON.stringify({
+      continue: true,
+      additionalContext: contextParts.join('\n\n'),
+    }));
   } catch (err) {
     // Silent failure — don't break the session
     log.error(`SessionStart error: ${err.message}`);
