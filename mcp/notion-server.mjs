@@ -1,26 +1,29 @@
 #!/usr/bin/env node
 
 /**
- * Codepresso Notion MCP Server
+ * Codepresso Notion MCP Server — Bootstrap
  *
- * Standalone MCP server exposing Notion API tools:
- * - notion_query_db    — Query a database with optional filters
- * - notion_create_page — Create a page in a database
- * - notion_update_page — Update page properties
- * - notion_search      — Search pages by title
- * - notion_get_users   — List workspace members (for user identity setup)
- *
- * Reads API key from ~/.codepresso/config.json
+ * Auto-installs dependencies if missing, then launches the server.
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pluginRoot = join(__dirname, '..');
+
+if (!existsSync(join(pluginRoot, 'node_modules', '@modelcontextprotocol'))) {
+  execSync('npm install --no-audit --no-fund', { cwd: pluginRoot, stdio: 'ignore' });
+}
+
+// Dynamic imports — resolved after npm install has run
+const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 const CONFIG_PATH = join(homedir(), '.codepresso', 'config.json');
