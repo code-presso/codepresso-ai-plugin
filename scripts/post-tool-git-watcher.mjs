@@ -102,10 +102,7 @@ async function main() {
 
       process.stdout.write(JSON.stringify({
         continue: true,
-        hookSpecificOutput: {
-          hookEventName: 'PostToolUse',
-          additionalContext: `[Codepresso] Commit \`${commitInfo.hash}\` logged to PR #${session.prNumber}`,
-        },
+        additionalContext: `[Codepresso] Commit \`${commitInfo.hash}\` logged to PR #${session.prNumber}`,
       }));
       return;
     }
@@ -124,10 +121,7 @@ async function main() {
 
       process.stdout.write(JSON.stringify({
         continue: true,
-        hookSpecificOutput: {
-          hookEventName: 'PostToolUse',
-          additionalContext: `[Codepresso] Push detected on branch \`${session.branch}\` (PR #${session.prNumber})`,
-        },
+        additionalContext: `[Codepresso] Push detected on branch \`${session.branch}\` (PR #${session.prNumber})`,
       }));
       return;
     }
