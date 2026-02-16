@@ -29,8 +29,9 @@ async function main() {
   // Consume stdin (required by hook protocol)
   await readStdin(2000);
 
+  let session = null;
   try {
-    const session = readSession();
+    session = readSession();
     if (session && session.prNumber) {
       forceFlush({
         prNumber: session.prNumber,
