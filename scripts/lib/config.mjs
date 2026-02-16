@@ -7,7 +7,13 @@ const PROJECT_CONFIG_NAME = '.codepresso.json';
 
 const DEFAULT_CONFIG = {
   github: { token: null },
-  notion: { apiKey: null, defaultDatabaseId: null },
+  notion: {
+    apiKey: null,
+    defaultDatabaseId: null,
+    userId: null,               // Notion user ID (for filtering tasks by assignee)
+    displayName: null,          // Display name (for auto-assigning created tasks)
+    assigneeProperty: 'Assignee', // Name of the assignee property in the Notion DB
+  },
   prLogging: {
     enabled: true,
     trackGitOps: true,
@@ -38,14 +44,6 @@ const DEFAULT_CONFIG = {
   analytics: {
     enabled: true,
     retentionDays: 90,
-  },
-  qa: {
-    enabled: true,
-    dimensions: ['quality', 'security', 'testing', 'documentation', 'performance'],
-    minScoreThreshold: 5,
-    postToPr: true,
-    model: 'claude-haiku-4-5-20251001',
-    paths: [],
   },
   prLabels: {
     enabled: true,
@@ -139,7 +137,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'qa', 'prLabels', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
@@ -200,24 +198,6 @@ export function validateConfig(config) {
     }
     if (typeof config.analytics.retentionDays === 'number' && config.analytics.retentionDays <= 0) {
       warnings.push(`analytics.retentionDays must be > 0, got ${config.analytics.retentionDays}`);
-    }
-  }
-
-  if (config.qa) {
-    if (typeof config.qa.enabled !== 'undefined' && typeof config.qa.enabled !== 'boolean') {
-      warnings.push(`qa.enabled should be boolean, got ${typeof config.qa.enabled}`);
-    }
-    if (config.qa.dimensions && !Array.isArray(config.qa.dimensions)) {
-      warnings.push(`qa.dimensions should be an array, got ${typeof config.qa.dimensions}`);
-    }
-    if (typeof config.qa.minScoreThreshold === 'number' && (config.qa.minScoreThreshold < 0 || config.qa.minScoreThreshold > 10)) {
-      warnings.push(`qa.minScoreThreshold must be 0-10, got ${config.qa.minScoreThreshold}`);
-    }
-    if (typeof config.qa.postToPr !== 'undefined' && typeof config.qa.postToPr !== 'boolean') {
-      warnings.push(`qa.postToPr should be boolean, got ${typeof config.qa.postToPr}`);
-    }
-    if (config.qa.paths && !Array.isArray(config.qa.paths)) {
-      warnings.push(`qa.paths should be an array, got ${typeof config.qa.paths}`);
     }
   }
 

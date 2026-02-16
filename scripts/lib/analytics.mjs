@@ -104,24 +104,6 @@ export function recordSessionEnd(data) {
 }
 
 /**
- * Record a QA report for analytics.
- * @param {{ sessionId: string, branch?: string, prNumber?: number, overallScore: number|null, dimensionScores: Record<string, number|null>, filesChanged: number, linesAdded: number, linesRemoved: number }} data
- */
-export function recordQaReport(data) {
-  appendRecord({
-    recordType: 'qa_report',
-    sessionId: data.sessionId,
-    branch: data.branch || null,
-    prNumber: data.prNumber || null,
-    overallScore: data.overallScore ?? null,
-    dimensionScores: data.dimensionScores || {},
-    filesChanged: data.filesChanged || 0,
-    linesAdded: data.linesAdded || 0,
-    linesRemoved: data.linesRemoved || 0,
-  });
-}
-
-/**
  * Categorize scores into tiers.
  * @param {(number|null)[]} scores
  * @returns {{ excellent: number, good: number, warning: number, poor: number }}
@@ -200,8 +182,6 @@ export function aggregateSessions(records) {
         durationMinutes: null,
         startedAt: null,
         endedAt: null,
-        qaScore: null,
-        qaDimensions: null,
       });
     }
 
@@ -226,10 +206,6 @@ export function aggregateSessions(records) {
         s.durationMinutes = r.durationMinutes;
         s.startedAt = r.startedAt;
         s.endedAt = r.endedAt;
-        break;
-      case 'qa_report':
-        s.qaScore = r.overallScore;
-        s.qaDimensions = r.dimensionScores;
         break;
     }
   }

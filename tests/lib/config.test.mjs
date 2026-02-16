@@ -56,6 +56,16 @@ describe('config.mjs', () => {
       assert.strictEqual(config.excludePatterns.length, 2);
     });
 
+    it('returns Notion config defaults including user identity fields', () => {
+      const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
+
+      assert.strictEqual(config.notion.apiKey, null);
+      assert.strictEqual(config.notion.defaultDatabaseId, null);
+      assert.strictEqual(config.notion.userId, null);
+      assert.strictEqual(config.notion.displayName, null);
+      assert.strictEqual(config.notion.assigneeProperty, 'Assignee');
+    });
+
     it('merges nested sections correctly', () => {
       // Test with current directory (may or may not have config)
       const config = loadConfig();
@@ -76,26 +86,11 @@ describe('config.mjs', () => {
     it('preserves all default sections', () => {
       const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
 
-      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'qa', 'excludePatterns'];
+      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'excludePatterns'];
       for (const section of expectedSections) {
         assert(config.hasOwnProperty(section), `Missing section: ${section}`);
       }
     });
 
-    it('returns QA config defaults', () => {
-      const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
-
-      assert.strictEqual(config.qa.enabled, true);
-      assert(Array.isArray(config.qa.dimensions));
-      assert.strictEqual(config.qa.dimensions.length, 5);
-      assert(config.qa.dimensions.includes('quality'));
-      assert(config.qa.dimensions.includes('security'));
-      assert(config.qa.dimensions.includes('testing'));
-      assert(config.qa.dimensions.includes('documentation'));
-      assert(config.qa.dimensions.includes('performance'));
-      assert.strictEqual(config.qa.minScoreThreshold, 5);
-      assert.strictEqual(config.qa.postToPr, true);
-      assert.strictEqual(config.qa.model, 'claude-haiku-4-5-20251001');
-    });
   });
 });

@@ -49,8 +49,6 @@ Display team analytics: prompt quality scores, activity volume, git operations, 
    - `git_commit` records → count commits
    - `git_push` records → count pushes
    - `session_end` records → extract `durationMinutes`
-   - `qa_report` records → extract `overallScore`, `dimensionScores`
-
 4. **Format Current Session section**
 
    ```
@@ -106,57 +104,21 @@ Display team analytics: prompt quality scores, activity volume, git operations, 
    | **Total** | | **118** | |
    ```
 
-7. **Format QA Metrics section**
-
-   If any `qa_report` records exist, show this section. Otherwise skip it.
-
-   Show the current session's QA score with dimension breakdown (if available):
-
-   ```
-   ## QA Metrics
-
-   ### Current Session QA
-   | Dimension | Score |
-   |-----------|-------|
-   | Quality | 8/10 |
-   | Security | 7/10 |
-   | Testing | 5/10 |
-   | Documentation | 6/10 |
-   | Performance | 8/10 |
-   | **Overall** | **6.8/10** |
-   ```
-
-   Then show QA dimension trends — average scores per dimension comparing this week vs last week:
-
-   ```
-   ### QA Dimension Trends (This Week vs Last Week)
-   | Dimension | This Week | Last Week | Delta |
-   |-----------|-----------|-----------|-------|
-   | Quality | 7.8 | 7.2 | +8% |
-   | Security | 7.0 | 6.5 | +8% |
-   | Testing | 5.5 | 6.0 | -8% |
-   | Documentation | 6.2 | 5.8 | +7% |
-   | Performance | 8.0 | 7.5 | +7% |
-   | **Overall** | **6.9** | **6.6** | **+5%** |
-   ```
-
-   Use the same delta formatting as the Weekly Trends section (arrows or +/- percentages).
-
-8. **Format Recent Sessions section**
+7. **Format Recent Sessions section**
 
    Show last 10 sessions sorted by most recent:
 
    ```
    ## Recent Sessions
 
-   | Date | Branch | Duration | Prompts | Avg Score | QA Score | Commits |
-   |------|--------|----------|---------|-----------|----------|---------|
-   | Feb 15 | `feature/auth` | 45m | 12 | 7.2 | 6.8 | 4 |
-   | Feb 14 | `fix/login` | 20m | 6 | 8.1 | 7.5 | 2 |
+   | Date | Branch | Duration | Prompts | Avg Score | Commits |
+   |------|--------|----------|---------|-----------|---------|
+   | Feb 15 | `feature/auth` | 45m | 12 | 7.2 | 4 |
+   | Feb 14 | `fix/login` | 20m | 6 | 8.1 | 2 |
    | ... | | | | | | |
    ```
 
-9. **Output the complete dashboard**
+8. **Output the complete dashboard**
 
    Combine all sections with a header:
 
@@ -166,7 +128,6 @@ Display team analytics: prompt quality scores, activity volume, git operations, 
    [Current Session section]
    [Weekly Trends section]
    [Score Distribution section]
-   [QA Metrics section]
    [Recent Sessions section]
 
    ---
@@ -186,5 +147,4 @@ Display team analytics: prompt quality scores, activity volume, git operations, 
 - Score tiers: excellent (>=8), good (>=5), warning (>=3), poor (<3)
 - Duration is in minutes from `session_end` records
 - If a session has no `session_end` record, duration shows as "\u2014"
-- If a session has no `qa_report` record, QA Score shows as "\u2014"
 - Records older than 90 days are filtered out on read
