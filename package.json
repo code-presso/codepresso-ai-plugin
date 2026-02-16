@@ -1,0 +1,15 @@
+{
+  "name": "codepresso-plugin",
+  "version": "0.1.0",
+  "description": "Team workflow plugin - GitHub PR logging + Notion sync for Claude Code",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test tests/lib/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3"
+  }
+}
