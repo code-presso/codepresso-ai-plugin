@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "codepresso",
+  "description": "Team workflow plugin - GitHub PR activity logging, prompt quality scoring, git tracking, Notion sync",
+  "owner": {
+    "name": "Code Presso",
+    "email": "team@codepresso.ai"
+  },
+  "plugins": [
+    {
+      "name": "codepresso",
+      "description": "Team workflow plugin - GitHub PR activity logging, prompt quality scoring, git operation tracking, Notion task sync, and optional deployment integration for Claude Code.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Code Presso"
+      },
+      "source": "./",
+      "category": "productivity",
+      "tags": ["team-workflow", "pr-logging", "notion-sync", "quality-scoring"]
+    }
+  ]
+}
