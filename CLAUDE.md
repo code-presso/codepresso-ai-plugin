@@ -25,22 +25,19 @@ codepresso-plugin/
 │   │   ├── redactor.mjs           # Sensitive data redaction (11 patterns + custom)
 │   │   ├── rate-limiter.mjs       # PR comment rate limiting (hourly + session)
 │   │   ├── logger.mjs             # Debug logger (writes to ~/.codepresso/logs/)
-│   │   ├── analytics.mjs          # Analytics persistence (sessions.jsonl)
-│   │   └── qa-evaluator.mjs       # QA evaluation engine (5 dimensions, API + parsing)
+│   │   └── analytics.mjs          # Analytics persistence (sessions.jsonl)
 │   ├── session-start.mjs          # SessionStart hook: detect branch/PR, cache state + headCommit
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit hook: batch prompts silently
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash hook: detect git commit/push
-│   ├── session-end.mjs            # Stop hook: force-flush remaining batch + spawn QA
-│   ├── score-and-post.mjs         # Detached process: score batch + post PR comment
-│   └── qa-runner.mjs              # Detached process: QA evaluation + PR comment
+│   ├── session-end.mjs            # Stop hook: force-flush remaining batch
+│   └── score-and-post.mjs         # Detached process: score batch + post PR comment
 ├── skills/
 │   ├── setup/SKILL.md             # Interactive setup wizard
 │   ├── log/SKILL.md               # Manual PR summary posting
 │   ├── status/SKILL.md            # Plugin status and diagnostics
 │   ├── notion-sync/SKILL.md       # Notion task query/update
 │   ├── deploy/SKILL.md            # Deploy trigger (optional)
-│   ├── dashboard/SKILL.md         # Team analytics dashboard
-│   └── qa/SKILL.md                # Manual QA evaluation trigger
+│   └── dashboard/SKILL.md         # Team analytics dashboard
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing 5 Notion API tools
@@ -61,14 +58,8 @@ User Prompt → UserPromptSubmit hook → redact secrets → batch queue (.jsonl
 
 Git Commit → PostToolUse:Bash hook → detached `gh pr comment`
 
-Session Start → SessionStart hook → detect branch → find PR → cache state + headCommit
-Session End  → Stop hook → force-flush remaining batch → spawn QA runner (detached)
-                                                              ↓
-                                                         git diff (headCommit..HEAD)
-                                                              ↓
-                                                         API evaluation (5 dimensions)
-                                                              ↓
-                                                         Record qa_report → post PR comment
+Session Start → SessionStart hook → detect branch → find PR → cache state
+Session End  → Stop hook → force-flush remaining batch
 ```
 
 ---
@@ -140,7 +131,6 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 | `codepresso-flush-*.json` | JSON | Temporary scoring payloads (auto-cleaned) |
 | `codepresso-flush.lock` | Text | Atomic flush lock (PID, stale after 30s) |
 | `codepresso-rate-limit.json` | JSON | Rate limit state per PR (hourly + session counts) |
-| `codepresso-qa-*.json` | JSON | Temporary QA payloads for detached runner (auto-cleaned) |
 
 **Analytics data** (separate location: `~/.codepresso/analytics/`):
 
@@ -196,16 +186,6 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
   "prLabels": {
     "enabled": true,                               // Auto-label PRs on first flush
     "labels": ["ai-assisted"]                      // Labels to apply
-  },
-  "qa": {
-    "enabled": true,                               // Enable automated QA evaluation at session end
-    "dimensions": [                                // Quality dimensions to evaluate
-      "quality", "security", "testing", "documentation", "performance"
-    ],
-    "minScoreThreshold": 5,                        // Minimum acceptable score (0-10, warn-only)
-    "postToPr": true,                              // Post QA report as PR comment
-    "model": "claude-haiku-4-5-20251001",          // Model for QA evaluation
-    "paths": []                                    // Path filters for monorepos (e.g. ["packages/api/**"])
   },
   "excludePatterns": [                             // Regex patterns to skip logging
     "^/oh-my-claudecode:",
@@ -312,49 +292,3 @@ echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1
 - Delete `.omc/state/codepresso-*.json` and `.omc/state/codepresso-*.jsonl`
 - Restart Claude Code to regenerate session state
 
-### QA not running
-- Verify `qa.enabled` is not `false` in config
-- Ensure `ANTHROPIC_API_KEY` is set (required for API evaluation)
-- Check that `headCommit` exists in `.omc/state/codepresso-session.json`
-- Verify there are actual git changes since session start: `git diff <headCommit>..HEAD --stat`
-
----
-
-## QA System
-
-### Overview
-
-Automated code quality evaluation that runs at session end and scores changes across 5 dimensions: quality, security, testing, documentation, and performance. Operates in **warn-only** mode (PR comments, never blocking).
-
-### How It Works
-
-1. **Session start** — `session-start.mjs` captures `headCommit` (current HEAD hash) in session state
-2. **Session end** — `session-end.mjs` spawns `qa-runner.mjs` as a detached process
-3. **QA runner** — computes `git diff headCommit..HEAD`, calls Anthropic API via `qa-evaluator.mjs`
-4. **Results** — recorded as `qa_report` in analytics JSONL, optionally posted as PR comment
-
-### Dimensions
-
-| Dimension | Checks |
-|-----------|--------|
-| quality | Readability, naming, structure, error handling, code smells |
-| security | Injection, auth, secrets, input validation, dependency risks |
-| testing | Untested logic, missing edge cases, assertion quality |
-| documentation | JSDoc, README updates, undocumented APIs |
-| performance | N+1 queries, memory leaks, blocking ops |
-
-### Manual Trigger
-
-Use `codepresso:qa` skill to run QA evaluation on-demand. The manual version uses the LLM directly (no API call) to evaluate the diff and display a report inline.
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `scripts/lib/qa-evaluator.mjs` | Core module: prompt building, API call, response parsing, comment formatting |
-| `scripts/qa-runner.mjs` | Detached process: orchestrates diff → evaluate → record → post |
-| `skills/qa/SKILL.md` | Manual QA skill for on-demand evaluation |
-
-### Analytics Integration
-
-QA reports are stored as `qa_report` records in `~/.codepresso/analytics/sessions.jsonl` with fields: `overallScore`, `dimensionScores`, `filesChanged`, `linesAdded`, `linesRemoved`. The dashboard skill displays QA metrics including dimension trends and per-session QA scores.
