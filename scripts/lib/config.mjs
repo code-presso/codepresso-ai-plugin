@@ -7,7 +7,13 @@ const PROJECT_CONFIG_NAME = '.codepresso.json';
 
 const DEFAULT_CONFIG = {
   github: { token: null },
-  notion: { apiKey: null, defaultDatabaseId: null },
+  notion: {
+    apiKey: null,
+    defaultDatabaseId: null,
+    userId: null,               // Notion user ID (for filtering tasks by assignee)
+    displayName: null,          // Display name (for auto-assigning created tasks)
+    assigneeProperty: 'Assignee', // Name of the assignee property in the Notion DB
+  },
   prLogging: {
     enabled: true,
     trackGitOps: true,

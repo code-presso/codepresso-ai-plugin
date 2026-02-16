@@ -33,6 +33,9 @@ set logging preferences, and write config files.
    - If yes, prompt for Notion API key (Internal Integration Token)
    - Prompt for default database ID
    - Test connection via MCP notion tools
+   - Use `notion_get_users` MCP tool to list workspace members
+   - Ask the user to select themselves from the list (sets `notion.userId` and `notion.displayName`)
+   - Ask for the name of the assignee property in their database (default: "Assignee")
 
 4. **PR logging preferences**
    - Ask for batch interval (default: 60s)
@@ -72,4 +75,5 @@ Action: Run wizard focused on per-project config
 - [ ] Global config written to `~/.codepresso/config.json`
 - [ ] PR detection works for current branch
 - [ ] Notion configured (if requested)
+- [ ] Notion user identity set (userId and displayName in config)
 </Final_Checklist>
