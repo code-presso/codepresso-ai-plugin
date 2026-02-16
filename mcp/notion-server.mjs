@@ -8,6 +8,7 @@
  * - notion_create_page — Create a page in a database
  * - notion_update_page — Update page properties
  * - notion_search      — Search pages by title
+ * - notion_get_users   — List workspace members (for user identity setup)
  *
  * Reads API key from ~/.codepresso/config.json
  */
@@ -161,6 +162,21 @@ const TOOLS = [
       required: ['query'],
     },
   },
+  {
+    name: 'notion_get_users',
+    description:
+      'List all users (members and bots) in the Notion workspace. Useful for identifying user IDs to configure task assignment.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_size: {
+          type: 'number',
+          description: 'Number of results (max 100, default 100)',
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -229,6 +245,21 @@ async function handleSearch(args) {
   return { pages, has_more: result.has_more };
 }
 
+async function handleGetUsers(args) {
+  const pageSize = args.page_size || 100;
+  const result = await notionFetch(`/users?page_size=${pageSize}`);
+
+  const users = (result.results || []).map((user) => ({
+    id: user.id,
+    type: user.type,
+    name: user.name || '(unnamed)',
+    avatar_url: user.avatar_url || null,
+    email: user.person?.email || null,
+  }));
+
+  return { users, has_more: result.has_more, next_cursor: result.next_cursor };
+}
+
 // --- Server setup ---
 
 const server = new Server(
@@ -257,6 +288,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'notion_search':
         result = await handleSearch(args);
+        break;
+      case 'notion_get_users':
+        result = await handleGetUsers(args);
         break;
       default:
         return {

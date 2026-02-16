@@ -43,7 +43,7 @@ codepresso-plugin/
 │   └── qa/SKILL.md                # Manual QA evaluation trigger
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
-│   └── notion-server.mjs          # MCP server exposing 4 Notion API tools
+│   └── notion-server.mjs          # MCP server exposing 5 Notion API tools
 ├── templates/workflows/           # GitHub Actions templates (ECS, CodePipeline)
 ├── .claude-plugin/plugin.json     # Plugin manifest
 ├── .mcp.json                      # MCP server declaration
@@ -157,7 +157,10 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
   "github": { "token": null },                    // Optional, falls back to `gh` CLI auth
   "notion": {
     "apiKey": null,                                // Notion Internal Integration Token (ntn_...)
-    "defaultDatabaseId": null                      // Default Notion DB for sync
+    "defaultDatabaseId": null,                     // Default Notion DB for sync
+    "userId": null,                                // Notion user ID (for filtering tasks by assignee)
+    "displayName": null,                           // Display name (for auto-assigning created tasks)
+    "assigneeProperty": "Assignee"                 // Name of the assignee property in the Notion DB
   },
   "prLogging": {
     "enabled": true,                               // Master switch for PR logging

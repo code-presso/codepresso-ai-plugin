@@ -56,6 +56,16 @@ describe('config.mjs', () => {
       assert.strictEqual(config.excludePatterns.length, 2);
     });
 
+    it('returns Notion config defaults including user identity fields', () => {
+      const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
+
+      assert.strictEqual(config.notion.apiKey, null);
+      assert.strictEqual(config.notion.defaultDatabaseId, null);
+      assert.strictEqual(config.notion.userId, null);
+      assert.strictEqual(config.notion.displayName, null);
+      assert.strictEqual(config.notion.assigneeProperty, 'Assignee');
+    });
+
     it('merges nested sections correctly', () => {
       // Test with current directory (may or may not have config)
       const config = loadConfig();
