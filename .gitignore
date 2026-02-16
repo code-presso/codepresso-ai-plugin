@@ -1,0 +1,4 @@
+node_modules/
+.omc/
+.claude/
+package-lock.json

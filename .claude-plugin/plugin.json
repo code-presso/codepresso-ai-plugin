@@ -1,0 +1,10 @@
+{
+  "name": "codepresso",
+  "version": "0.1.0",
+  "description": "Team workflow - GitHub PR logging + Notion sync",
+  "author": {
+    "name": "Team"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

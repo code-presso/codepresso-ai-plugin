@@ -1,0 +1,93 @@
+# Trigger AWS CodePipeline
+# Copy this file to your project's .github/workflows/deploy-codepipeline.yml
+# Required secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, CODEPIPELINE_NAME
+
+name: Trigger CodePipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pipeline:
+        description: 'Pipeline name (overrides default)'
+        required: false
+        type: string
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+
+jobs:
+  trigger:
+    name: Trigger Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Trigger CodePipeline
+        id: trigger
+        env:
+          PIPELINE_NAME: ${{ github.event.inputs.pipeline || secrets.CODEPIPELINE_NAME }}
+        run: |
+          EXECUTION_ID=$(aws codepipeline start-pipeline-execution \
+            --name "$PIPELINE_NAME" \
+            --query 'pipelineExecutionId' \
+            --output text)
+          echo "execution_id=$EXECUTION_ID" >> $GITHUB_OUTPUT
+          echo "pipeline=$PIPELINE_NAME" >> $GITHUB_OUTPUT
+          echo "Pipeline triggered: $PIPELINE_NAME (Execution: $EXECUTION_ID)"
+
+      - name: Wait for pipeline completion
+        env:
+          PIPELINE_NAME: ${{ steps.trigger.outputs.pipeline }}
+          EXECUTION_ID: ${{ steps.trigger.outputs.execution_id }}
+        run: |
+          echo "Waiting for pipeline execution $EXECUTION_ID..."
+          for i in $(seq 1 60); do
+            STATUS=$(aws codepipeline get-pipeline-execution \
+              --pipeline-name "$PIPELINE_NAME" \
+              --pipeline-execution-id "$EXECUTION_ID" \
+              --query 'pipelineExecution.status' \
+              --output text)
+            echo "Status: $STATUS (attempt $i/60)"
+            case $STATUS in
+              Succeeded) echo "Pipeline succeeded!"; exit 0 ;;
+              Failed|Stopped|Cancelled) echo "Pipeline $STATUS"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "Timeout waiting for pipeline"
+          exit 1
+
+      - name: Post deployment status to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const emoji = status === 'success' ? '🚀' : '❌';
+            const pipeline = '${{ steps.trigger.outputs.pipeline }}';
+            const execId = '${{ steps.trigger.outputs.execution_id }}';
+            const body = `### ${emoji} CodePipeline ${status === 'success' ? 'Succeeded' : 'Failed'}\n\n**Pipeline:** \`${pipeline}\`\n**Execution:** \`${execId}\`\n**Status:** \`${status}\`\n\n---\n<sub>Triggered by Codepresso CI/CD</sub>`;
+
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${context.ref.replace('refs/heads/', '')}`,
+              state: 'open'
+            });
+
+            if (prs.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs.data[0].number,
+                body
+              });
+            }
