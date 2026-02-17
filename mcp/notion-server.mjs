@@ -28,13 +28,17 @@ import { homedir } from 'node:os';
 
 const CONFIG_PATH = join(homedir(), '.codepresso', 'config.json');
 
-function loadNotionKey() {
+function loadNotionConfig() {
   try {
     const config = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    return config.notion?.apiKey || null;
+    return config.notion || {};
   } catch {
-    return null;
+    return {};
   }
+}
+
+function loadNotionKey() {
+  return loadNotionConfig().apiKey || null;
 }
 
 const NOTION_API = 'https://api.notion.com/v1';
@@ -186,7 +190,30 @@ const TOOLS = [
 
 async function handleQueryDb(args) {
   const body = {};
-  if (args.filter) body.filter = args.filter;
+
+  // Build date window filter (default: last 14 days)
+  const notionConfig = loadNotionConfig();
+  const syncWindowDays = notionConfig.syncWindowDays ?? 14;
+
+  let dateFilter = null;
+  if (syncWindowDays > 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - syncWindowDays);
+    dateFilter = {
+      timestamp: 'last_edited_time',
+      last_edited_time: { on_or_after: cutoff.toISOString().split('T')[0] },
+    };
+  }
+
+  // Combine user filter with date window filter
+  if (args.filter && dateFilter) {
+    body.filter = { and: [args.filter, dateFilter] };
+  } else if (args.filter) {
+    body.filter = args.filter;
+  } else if (dateFilter) {
+    body.filter = dateFilter;
+  }
+
   if (args.sorts) body.sorts = args.sorts;
   body.page_size = args.page_size || 50;
 

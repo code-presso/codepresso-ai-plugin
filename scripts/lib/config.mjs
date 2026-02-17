@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = {
     userId: null,               // Notion user ID (for filtering tasks by assignee)
     displayName: null,          // Display name (for auto-assigning created tasks)
     assigneeProperty: 'Assignee', // Name of the assignee property in the Notion DB
+    syncWindowDays: 14,          // Default query window for Notion sync (0 = no limit)
   },
   prLogging: {
     enabled: true,
