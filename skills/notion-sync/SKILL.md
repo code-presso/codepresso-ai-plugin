@@ -27,6 +27,7 @@ task status. Uses the Codepresso Notion MCP server for API access.
 
 2. **Query Notion database**
    - Use MCP tool `notion_query_db` with the configured database ID
+   - The MCP server automatically limits results to the last `notion.syncWindowDays` days (default: 14). This prevents oversized responses. Users can adjust this in config or set to 0 to disable.
    - If `notion.userId` is configured, default to filtering tasks assigned to the user via the `notion.assigneeProperty` (default: "Assignee") using a `people` filter: `{ "property": "<assigneeProperty>", "people": { "contains": "<userId>" } }`
    - If user explicitly asks for all tasks (e.g., "show all tasks"), skip the assignee filter
    - Apply additional filters if user specified (e.g., "show in-progress tasks")
