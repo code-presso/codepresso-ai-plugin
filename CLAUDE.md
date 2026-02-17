@@ -150,7 +150,8 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
     "defaultDatabaseId": null,                     // Default Notion DB for sync
     "userId": null,                                // Notion user ID (for filtering tasks by assignee)
     "displayName": null,                           // Display name (for auto-assigning created tasks)
-    "assigneeProperty": "Assignee"                 // Name of the assignee property in the Notion DB
+    "assigneeProperty": "Assignee",                 // Name of the assignee property in the Notion DB
+    "syncWindowDays": 14                             // Query window in days (0 = no limit)
   },
   "prLogging": {
     "enabled": true,                               // Master switch for PR logging
