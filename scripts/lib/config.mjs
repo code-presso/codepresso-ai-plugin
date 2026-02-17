@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -110,6 +110,15 @@ export function loadConfig(cwd = process.cwd(), { globalConfigPath } = {}) {
   });
 
   return merged;
+}
+
+/**
+ * Check if initial setup has been completed by verifying the global config file exists.
+ * @param {string} [globalConfigPath] - Path to global config (defaults to ~/.codepresso/config.json)
+ * @returns {boolean}
+ */
+export function isSetupComplete(globalConfigPath) {
+  return existsSync(globalConfigPath ?? GLOBAL_CONFIG_PATH);
 }
 
 /**

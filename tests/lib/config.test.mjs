@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { isExcluded, loadConfig } from '../../scripts/lib/config.mjs';
+import { isExcluded, isSetupComplete, loadConfig } from '../../scripts/lib/config.mjs';
 
 describe('config.mjs', () => {
   describe('isExcluded', () => {
@@ -37,6 +37,17 @@ describe('config.mjs', () => {
       assert.strictEqual(isExcluded('/skill:commit', patterns), true);
       assert.strictEqual(isExcluded('run test suite', patterns), true);
       assert.strictEqual(isExcluded('testing', patterns), false);
+    });
+  });
+
+  describe('isSetupComplete', () => {
+    it('returns false when global config does not exist', () => {
+      assert.strictEqual(isSetupComplete('/tmp/nonexistent-codepresso-config.json'), false);
+    });
+
+    it('returns true when global config exists', () => {
+      // package.json always exists in the project root — use it as a stand-in
+      assert.strictEqual(isSetupComplete(new URL('../../package.json', import.meta.url).pathname), true);
     });
   });
 
