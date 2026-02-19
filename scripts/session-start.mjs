@@ -28,19 +28,12 @@ function ensureStateDir() {
 
 async function main() {
   // Consume stdin (required by hook protocol)
-  await readStdin(3000);
+  await readStdin(1000);
 
   try {
     const config = loadConfig();
-
-    if (!config.prLogging?.enabled) {
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
-    }
-
     const branch = getCurrentBranch();
     const onMainBranch = !branch || isMainBranch(branch);
-
     const sessionId = randomUUID();
     let pr = null;
 
@@ -50,6 +43,30 @@ async function main() {
 
     log.info(`Branch: ${branch || '(none)'}, PR: ${pr?.number || 'none'}`);
 
+    // Build context parts
+    const contextParts = [];
+
+    // PR context only if prLogging is enabled
+    if (config.prLogging?.enabled) {
+      if (pr) {
+        contextParts.push(`[Codepresso] PR #${pr.number} detected on branch \`${branch}\`. Prompts will be logged.`);
+      } else if (!onMainBranch) {
+        contextParts.push(`[Codepresso] Branch \`${branch}\` — no open PR found. Prompt logging disabled.`);
+      }
+    }
+
+    // Fetch Notion tasks (non-blocking, timeout-protected) — always, regardless of branch
+    let notionContext = null;
+    try {
+      const taskList = await fetchNotionTasks();
+      if (taskList) {
+        notionContext = taskList;
+        contextParts.push(taskList);
+      }
+    } catch {
+      // Notion fetch failed — skip silently
+    }
+
     const sessionState = {
       branch,
       prNumber: pr?.number || null,
@@ -58,29 +75,12 @@ async function main() {
       startedAt: new Date().toISOString(),
       labelsApplied: false,
       headCommit: getHeadCommit(),
+      notionContext,
+      notionContextShown: false,
     };
 
     ensureStateDir();
     writeFileSync(SESSION_FILE, JSON.stringify(sessionState, null, 2), 'utf-8');
-
-    // Build context parts
-    const contextParts = [];
-
-    if (pr) {
-      contextParts.push(`[Codepresso] PR #${pr.number} detected on branch \`${branch}\`. Prompts will be logged.`);
-    } else if (!onMainBranch) {
-      contextParts.push(`[Codepresso] Branch \`${branch}\` — no open PR found. Prompt logging disabled.`);
-    }
-
-    // Fetch Notion tasks (non-blocking, timeout-protected) — always, regardless of branch
-    try {
-      const taskList = await fetchNotionTasks();
-      if (taskList) {
-        contextParts.push(taskList);
-      }
-    } catch {
-      // Notion fetch failed — skip silently
-    }
 
     if (contextParts.length === 0) {
       process.stdout.write(JSON.stringify({ continue: true }));

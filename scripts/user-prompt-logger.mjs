@@ -3,7 +3,6 @@
 /**
  * Codepresso UserPromptSubmit hook.
  * Captures user prompts and appends them to a batch file for periodic PR commenting.
- * Runs silently — no additionalContext injected to avoid conflicting with OMC.
  */
 
 import { readStdin } from './lib/stdin.mjs';
@@ -31,61 +30,45 @@ async function main() {
     const input = JSON.parse(raw);
     const prompt = input?.hookInput?.userPrompt || input?.prompt || '';
 
-    if (!prompt) {
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
-    }
+    if (prompt) {
+      const config = loadConfig();
 
-    const config = loadConfig();
+      if (config.prLogging?.enabled && !isExcluded(prompt, config.excludePatterns)) {
+        const session = readSession();
+        if (session && session.prNumber) {
+          // Truncate prompt if configured
+          const maxLen = config.prLogging.truncatePromptLength || 500;
+          const truncated = prompt.length > maxLen
+            ? prompt.slice(0, maxLen) + '...'
+            : prompt;
 
-    if (!config.prLogging?.enabled) {
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
-    }
+          // Append to batch (fire-and-forget, with redaction if enabled)
+          const redactionEnabled = config.redaction?.enabled !== false;
+          const extraRedactPatterns = redactionEnabled ? (config.redaction?.extraPatterns || []) : [];
+          appendToBatch({
+            timestamp: new Date().toISOString(),
+            prompt: truncated,
+            sessionId: session.sessionId,
+          }, redactionEnabled ? extraRedactPatterns : null);
 
-    // Check exclude patterns
-    if (isExcluded(prompt, config.excludePatterns)) {
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
-    }
+          log.debug(`Prompt batched (session: ${session.sessionId?.slice(0,8)})`);
 
-    const session = readSession();
-    if (!session || !session.prNumber) {
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
-    }
-
-    // Truncate prompt if configured
-    const maxLen = config.prLogging.truncatePromptLength || 500;
-    const truncated = prompt.length > maxLen
-      ? prompt.slice(0, maxLen) + '...'
-      : prompt;
-
-    // Append to batch (fire-and-forget, with redaction if enabled)
-    const redactionEnabled = config.redaction?.enabled !== false;
-    const extraRedactPatterns = redactionEnabled ? (config.redaction?.extraPatterns || []) : [];
-    appendToBatch({
-      timestamp: new Date().toISOString(),
-      prompt: truncated,
-      sessionId: session.sessionId,
-    }, redactionEnabled ? extraRedactPatterns : null);
-
-    log.debug(`Prompt batched (session: ${session.sessionId?.slice(0,8)})`);
-
-    // Check if batch should flush (non-blocking)
-    flushIfReady(
-      { prNumber: session.prNumber, branch: session.branch, sessionId: session.sessionId },
-      {
-        batchIntervalSeconds: config.prLogging.batchIntervalSeconds,
-        maxBatchSize: config.prLogging.maxBatchSize,
-        rateLimit: config.rateLimit,
+          // Check if batch should flush (non-blocking)
+          flushIfReady(
+            { prNumber: session.prNumber, branch: session.branch, sessionId: session.sessionId },
+            {
+              batchIntervalSeconds: config.prLogging.batchIntervalSeconds,
+              maxBatchSize: config.prLogging.maxBatchSize,
+              rateLimit: config.rateLimit,
+            }
+          );
+        }
       }
-    );
+    }
   } catch {
     // Silent failure
   }
 
-  // Always continue — never block the user
   process.stdout.write(JSON.stringify({ continue: true }));
 }
 

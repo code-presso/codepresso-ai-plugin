@@ -99,47 +99,52 @@ export async function fetchNotionTasks() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    const response = await fetch(
-      `${NOTION_API}/databases/${notion.defaultDatabaseId}/query`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${notion.apiKey}`,
-          'Notion-Version': NOTION_VERSION,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+    try {
+      const response = await fetch(
+        `${NOTION_API}/databases/${notion.defaultDatabaseId}/query`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${notion.apiKey}`,
+            'Notion-Version': NOTION_VERSION,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        return null;
       }
-    );
 
-    clearTimeout(timeout);
+      const data = await response.json();
+      const pages = data.results || [];
 
-    if (!response.ok) {
-      return null;
+      if (pages.length === 0) {
+        return notion.userId
+          ? 'No tasks assigned to you in Notion.'
+          : 'No tasks found in Notion database.';
+      }
+
+      const tasks = pages.map((page) => {
+        const title = extractTitle(page.properties);
+        const status = extractStatus(page.properties);
+        const statusStr = status ? ` (${status})` : '';
+        return `- ${title}${statusStr}`;
+      });
+
+      const header = notion.userId
+        ? `Your Notion Tasks (${pages.length}):`
+        : `Notion Tasks (${pages.length}):`;
+
+      return `${header}\n${tasks.join('\n')}`;
+    } catch {
+      clearTimeout(timeout);
+      throw new Error('Fetch failed');
     }
-
-    const data = await response.json();
-    const pages = data.results || [];
-
-    if (pages.length === 0) {
-      return notion.userId
-        ? 'No tasks assigned to you in Notion.'
-        : 'No tasks found in Notion database.';
-    }
-
-    const tasks = pages.map((page) => {
-      const title = extractTitle(page.properties);
-      const status = extractStatus(page.properties);
-      const statusStr = status ? ` (${status})` : '';
-      return `- ${title}${statusStr}`;
-    });
-
-    const header = notion.userId
-      ? `Your Notion Tasks (${pages.length}):`
-      : `Notion Tasks (${pages.length}):`;
-
-    return `${header}\n${tasks.join('\n')}`;
   } catch {
     // Network error, timeout, or parse error — fail silently
     return null;
