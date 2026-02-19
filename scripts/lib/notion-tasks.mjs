@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 
 const NOTION_API = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
-const FETCH_TIMEOUT_MS = 3000;
+const FETCH_TIMEOUT_MS = 4000;
 
 /**
  * Load Notion config from the global config file.
@@ -71,7 +71,7 @@ function extractStatus(properties) {
  *
  * @returns {Promise<string|null>} Formatted task list or null
  */
-export async function fetchNotionTasks() {
+export async function fetchNotionTasks(timeoutMs = FETCH_TIMEOUT_MS) {
   const notion = loadNotionConfig();
 
   if (!notion.apiKey || !notion.defaultDatabaseId) {
@@ -97,7 +97,7 @@ export async function fetchNotionTasks() {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(

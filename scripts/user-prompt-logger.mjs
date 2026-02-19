@@ -9,7 +9,7 @@ import { readStdin } from './lib/stdin.mjs';
 import { loadConfig, isExcluded } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { appendToBatch, flushIfReady } from './lib/pr-comment.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
@@ -69,7 +69,22 @@ async function main() {
     // Silent failure
   }
 
-  process.stdout.write(JSON.stringify({ continue: true }));
+  // Inject Notion tasks on first prompt (before any tool call triggers PreToolUse)
+  const session = readSession();
+  if (session && !session.notionContextShown && session.notionContext) {
+    process.stdout.write(JSON.stringify({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: `IMPORTANT: Display the following Notion tasks to the user immediately. Print them in a readable format so the user can see their current task status.\n\n${session.notionContext}`,
+      },
+    }));
+    // Mark as shown AFTER stdout (survive timeout kills)
+    session.notionContextShown = true;
+    writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+  } else {
+    process.stdout.write(JSON.stringify({ continue: true }));
+  }
 }
 
 main();
