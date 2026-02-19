@@ -90,9 +90,9 @@ export async function fetchNotionTasks() {
     };
   }
 
-  // Sort by status then last edited
+  // Sort by last edited (most recent first) — avoids hardcoded property names
   body.sorts = [
-    { property: 'Status', direction: 'ascending' },
+    { timestamp: 'last_edited_time', direction: 'descending' },
   ];
 
   try {

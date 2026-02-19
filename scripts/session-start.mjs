@@ -39,18 +39,16 @@ async function main() {
     }
 
     const branch = getCurrentBranch();
-    if (!branch || isMainBranch(branch)) {
-      // No PR logging on main branches
-      ensureStateDir();
-      writeFileSync(SESSION_FILE, JSON.stringify({ branch, prNumber: null, prUrl: null, sessionId: randomUUID(), headCommit: getHeadCommit() }), 'utf-8');
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
+    const onMainBranch = !branch || isMainBranch(branch);
+
+    const sessionId = randomUUID();
+    let pr = null;
+
+    if (!onMainBranch) {
+      pr = findPrForBranch(branch);
     }
 
-    const pr = findPrForBranch(branch);
-    const sessionId = randomUUID();
-
-    log.info(`Branch: ${branch}, PR: ${pr?.number || 'none'}`);
+    log.info(`Branch: ${branch || '(none)'}, PR: ${pr?.number || 'none'}`);
 
     const sessionState = {
       branch,
@@ -70,11 +68,11 @@ async function main() {
 
     if (pr) {
       contextParts.push(`[Codepresso] PR #${pr.number} detected on branch \`${branch}\`. Prompts will be logged.`);
-    } else {
+    } else if (!onMainBranch) {
       contextParts.push(`[Codepresso] Branch \`${branch}\` — no open PR found. Prompt logging disabled.`);
     }
 
-    // Fetch Notion tasks (non-blocking, timeout-protected)
+    // Fetch Notion tasks (non-blocking, timeout-protected) — always, regardless of branch
     try {
       const taskList = await fetchNotionTasks();
       if (taskList) {
@@ -82,6 +80,11 @@ async function main() {
       }
     } catch {
       // Notion fetch failed — skip silently
+    }
+
+    if (contextParts.length === 0) {
+      process.stdout.write(JSON.stringify({ continue: true }));
+      return;
     }
 
     process.stdout.write(JSON.stringify({
