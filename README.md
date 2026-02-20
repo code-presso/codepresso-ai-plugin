@@ -8,7 +8,7 @@ Team workflow plugin for Claude Code — GitHub PR logging, prompt scoring, opti
 - **Prompt Scoring**: Scores each prompt 0-10 for clarity/specificity using a cheap model (Haiku) — included in PR comments
 - **Git Tracking**: Detects `git commit` and `git push` operations, logs them to the associated PR
 - **Deploy Integration** (optional): Trigger deployments from Claude Code — ECS, CodePipeline, or custom
-- **Notion Sync**: Query and update Notion database tasks via MCP tools
+- **Notion Task Picker**: Pick your Notion task at session start — auto-updates status, creates branch, and enforces PR title format for auto-linking
 - **OMC Compatible**: Runs alongside oh-my-claudecode with zero conflicts
 
 ## Installation
@@ -83,15 +83,72 @@ Create `.codepresso.json` in your project root to override global settings:
 }
 ```
 
-## How It Works
+## Daily Workflow
+
+Here's what a typical day looks like with Codepresso:
+
+### 1. Start Claude Code
+
+```
+$ claude
+```
+
+Codepresso automatically:
+- Detects your branch and PR
+- Fetches your Notion tasks (filtered by assignee)
+
+### 2. Pick a Task
+
+An interactive picker appears with your active Notion tasks:
+
+```
+Which task would you like to work on?
+
+  [TSK-9945] plugin과 notion 연동 되도록 title 형식 지정  (진행 중)
+  [TSK-8700] Oracle DB 성능 테스트                        (할 일)
+  [TSK-8650] C, Java, Python 프로토타이핑                  (진행 중)
+  Other
+```
+
+When you pick a task, Codepresso:
+- Updates the Notion task status to "진행 중" (In Progress)
+- Saves the selection for PR title enforcement
+- Optionally creates a feature branch (e.g., `feature/notion-pr-title-format`)
+
+### 3. Work Normally
+
+Write code, commit, push — Codepresso silently logs everything to your PR.
+
+### 4. Create a PR
+
+When you create a PR, Codepresso **enforces** the Notion task ID in the title:
+
+```
+# This gets blocked:
+gh pr create --title "Add PR title format"
+
+# Codepresso suggests:
+gh pr create --title "TSK-9945 Add PR title format"
+```
+
+The `TSK-9945` prefix enables Notion's GitHub integration to **automatically link** the PR to your task — no manual connection needed.
+
+### 5. Session End
+
+Remaining prompt logs are flushed to the PR. Done.
+
+---
+
+## How It Works (Details)
 
 ### Session Start
 
-When you start Claude Code on a feature branch with an open PR, Codepresso:
+When you start Claude Code, Codepresso:
 1. Detects the current branch
 2. Finds the associated PR via `gh pr list`
-3. Caches session state to `.omc/state/codepresso-session.json`
-4. Displays: `[Codepresso] PR #42 detected. Prompts will be logged.`
+3. Fetches your Notion tasks (with unique IDs like `TSK-9945`)
+4. Caches everything to `.omc/state/codepresso-session.json`
+5. Displays PR status: `[Codepresso] PR #42 detected. Prompts will be logged.`
 
 ### Prompt Logging + Scoring
 
@@ -166,13 +223,28 @@ Then say "deploy to staging" in Claude Code.
 | Skill | Trigger | Description |
 |-------|---------|-------------|
 | `codepresso:setup` | "setup codepresso" | Interactive configuration wizard |
+| `codepresso:status` | "codepresso status" | Plugin status and diagnostics |
 | `codepresso:log` | "codepresso log" | Manually post session summary to PR |
-| `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
+| `codepresso:dashboard` | "codepresso dashboard" | Team analytics dashboard |
 | `codepresso:notion-sync` | "sync notion tasks" | Query/update Notion database tasks |
+| `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
 
 ## Notion Integration
 
-Codepresso includes an MCP server for Notion with these tools:
+### Task Picker + PR Auto-Linking
+
+At session start, Codepresso fetches tasks from your Notion database and presents an interactive picker. When you select a task:
+
+1. Task status is updated to "진행 중" in Notion
+2. The task's unique ID (e.g., `TSK-9945`) is saved locally
+3. When creating a PR, the hook enforces the ID in the title: `TSK-9945 description`
+4. Notion's GitHub integration auto-links the PR to the task
+
+**Requirements:** Your Notion database must have a `unique_id` property (built-in Notion feature) and a `status` property.
+
+### MCP Tools
+
+Codepresso includes an MCP server for Notion:
 
 | Tool | Description |
 |------|-------------|
@@ -180,6 +252,7 @@ Codepresso includes an MCP server for Notion with these tools:
 | `notion_create_page` | Create a page in a database |
 | `notion_update_page` | Update page properties |
 | `notion_search` | Search pages by title |
+| `notion_get_users` | List workspace members |
 
 To enable, add your Notion Internal Integration Token during `codepresso:setup`.
 
@@ -206,31 +279,37 @@ Codepresso is designed to run alongside oh-my-claudecode without conflicts:
 
 ```
 codepresso-plugin/
-├── .claude-plugin/plugin.json    # Plugin manifest
-├── hooks/hooks.json              # Hook declarations
+├── .claude-plugin/plugin.json     # Plugin manifest
+├── hooks/hooks.json               # 5 hook declarations
 ├── scripts/
 │   ├── lib/
-│   │   ├── stdin.mjs             # Timeout-protected stdin reader
-│   │   ├── git-utils.mjs         # Branch/PR detection
-│   │   ├── config.mjs            # Config loader (global + per-project)
-│   │   ├── pr-comment.mjs        # Batched PR comment posting
-│   │   └── prompt-scorer.mjs     # Prompt scoring via Anthropic API
-│   ├── user-prompt-logger.mjs    # UserPromptSubmit hook
-│   ├── post-tool-git-watcher.mjs # PostToolUse:Bash hook
-│   ├── session-start.mjs         # SessionStart hook
-│   └── score-and-post.mjs        # Detached scorer + poster
+│   │   ├── stdin.mjs              # Timeout-protected stdin reader
+│   │   ├── config.mjs             # Config loader (global + per-project)
+│   │   ├── git-utils.mjs          # Branch/PR detection
+│   │   ├── pr-comment.mjs         # Batched PR comment posting
+│   │   ├── prompt-scorer.mjs      # Prompt scoring via Anthropic API
+│   │   ├── redactor.mjs           # Sensitive data redaction
+│   │   ├── rate-limiter.mjs       # PR comment rate limiting
+│   │   ├── logger.mjs             # Debug logger
+│   │   ├── analytics.mjs          # Analytics persistence
+│   │   └── notion-tasks.mjs       # Notion task fetcher + unique ID extraction
+│   ├── session-start.mjs          # SessionStart: branch/PR detection + Notion task fetch
+│   ├── pre-tool-notion-inject.mjs # PreToolUse: task picker + PR title enforcement
+│   ├── user-prompt-logger.mjs     # UserPromptSubmit: batch prompts silently
+│   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit/push tracking
+│   ├── session-end.mjs            # Stop: force-flush remaining batch
+│   └── score-and-post.mjs         # Detached scorer + poster
 ├── skills/
-│   ├── log/SKILL.md              # Manual PR summary posting
-│   ├── deploy/SKILL.md           # Deploy trigger (optional)
-│   ├── notion-sync/SKILL.md      # Notion task sync
-│   └── setup/SKILL.md            # Setup wizard
-├── templates/
-│   └── workflows/
-│       ├── deploy-ecs.yml        # GitHub Actions template for ECS
-│       └── deploy-codepipeline.yml # GitHub Actions template for CodePipeline
-├── mcp/notion-server.mjs         # Notion MCP server
-├── .mcp.json                     # MCP server declaration
-├── .claude/settings.local.json   # MCP server enablement
+│   ├── setup/SKILL.md             # Setup wizard
+│   ├── status/SKILL.md            # Plugin diagnostics
+│   ├── log/SKILL.md               # Manual PR summary posting
+│   ├── dashboard/SKILL.md         # Team analytics dashboard
+│   ├── notion-sync/SKILL.md       # Notion task sync
+│   └── deploy/SKILL.md            # Deploy trigger (optional)
+├── tests/lib/                     # Unit tests (node:test + node:assert)
+├── mcp/notion-server.mjs          # Notion MCP server (5 tools)
+├── templates/workflows/           # GitHub Actions deploy templates
+├── .mcp.json                      # MCP server declaration
 └── package.json
 ```
 
