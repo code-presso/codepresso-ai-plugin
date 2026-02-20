@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { loadConfig } from './config.mjs';
 import { redactSecrets } from './redactor.mjs';
 import { canPost, recordPost } from './rate-limiter.mjs';
@@ -188,6 +188,42 @@ function checkRateLimit(prNumber, rateLimitConfig = {}) {
 }
 
 /**
+ * Check if a PR is still open. Returns false if merged/closed.
+ * On failure (network, timeout), returns true to avoid blocking flushes.
+ * @param {number} prNumber
+ * @param {string} [cwd]
+ * @returns {boolean}
+ */
+function isPrOpen(prNumber, cwd = process.cwd()) {
+  try {
+    const state = execSync(`gh pr view ${prNumber} --json state --jq .state`, {
+      cwd,
+      timeout: 5000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return state === 'OPEN';
+  } catch {
+    return true; // Assume open on error to avoid dropping prompts
+  }
+}
+
+/**
+ * Clear cached prNumber in session file so subsequent prompts skip commenting.
+ */
+function clearSessionPr() {
+  const sessionFile = join(STATE_DIR, 'codepresso-session.json');
+  try {
+    const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
+    session.prNumber = null;
+    session.prClosed = true;
+    writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
+  } catch {
+    // Session file missing — no-op
+  }
+}
+
+/**
  * Score prompts and post to PR via detached process.
  * @param {Array<{ timestamp: string, prompt: string }>} entries
  * @param {{ branch: string, sessionId?: string, cwd?: string }} meta
@@ -246,6 +282,14 @@ export function flushIfReady(session, config = {}) {
   const shouldFlush = entries.length >= maxSize || elapsed >= intervalMs;
 
   if (shouldFlush) {
+    // Check if PR is still open before wasting a scoring call
+    if (!isPrOpen(session.prNumber)) {
+      clearBatch();
+      clearTimerState();
+      clearSessionPr();
+      return; // PR merged/closed — discard batch, stop future commenting
+    }
+
     if (!acquireLock()) return; // Another flush in progress
     try {
       if (!checkRateLimit(session.prNumber, config.rateLimit)) {
@@ -278,6 +322,14 @@ export function flushIfReady(session, config = {}) {
 export function forceFlush(session) {
   const entries = readBatch();
   if (entries.length === 0) return;
+
+  // Check if PR is still open before wasting a scoring call
+  if (!isPrOpen(session.prNumber)) {
+    clearBatch();
+    clearTimerState();
+    clearSessionPr();
+    return; // PR merged/closed — discard batch, stop future commenting
+  }
 
   if (!acquireLock()) return; // Another flush in progress
   try {
