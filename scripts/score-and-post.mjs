@@ -23,12 +23,16 @@ async function main() {
     process.exit(1);
   }
 
-  const { entries, meta, prNumber, scoringEnabled, scoringModel } = payload;
+  const { entries, meta, prNumber, scoringEnabled, scoringModel, scoringBackend, scoringAwsRegion } = payload;
 
   let scores = entries.map(() => null);
   if (scoringEnabled !== false) {
     try {
-      scores = await scorePrompts(entries.map(e => e.prompt), scoringModel);
+      scores = await scorePrompts(
+        entries.map(e => e.prompt),
+        scoringModel,
+        { backend: scoringBackend, awsRegion: scoringAwsRegion },
+      );
     } catch {
       // Scoring failed, continue without scores
     }
