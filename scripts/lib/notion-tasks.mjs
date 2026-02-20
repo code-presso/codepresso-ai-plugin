@@ -45,6 +45,21 @@ function extractTitle(properties) {
 }
 
 /**
+ * Extract the unique ID from a Notion page's properties.
+ * Returns formatted string like "PREFIX-123" or null.
+ */
+function extractUniqueId(properties) {
+  for (const value of Object.values(properties)) {
+    if (value.type === 'unique_id' && value.unique_id) {
+      const { prefix, number } = value.unique_id;
+      if (prefix && number != null) return `${prefix}-${number}`;
+      if (number != null) return String(number);
+    }
+  }
+  return null;
+}
+
+/**
  * Extract the status value from a Notion page's properties.
  */
 function extractStatus(properties) {
@@ -143,12 +158,14 @@ export async function fetchNotionTasksStructured(timeoutMs = FETCH_TIMEOUT_MS) {
       const tasks = pages.map((page) => {
         const title = extractTitle(page.properties);
         const status = extractStatus(page.properties);
-        return { id: page.id, title, status };
+        const uniqueId = extractUniqueId(page.properties);
+        return { id: page.id, title, status, uniqueId };
       });
 
       const lines = tasks.map((t) => {
         const statusStr = t.status ? ` (${t.status})` : '';
-        return `- ${t.title}${statusStr}`;
+        const idPrefix = t.uniqueId ? `[${t.uniqueId}] ` : '';
+        return `- ${idPrefix}${t.title}${statusStr}`;
       });
 
       const header = notion.userId
