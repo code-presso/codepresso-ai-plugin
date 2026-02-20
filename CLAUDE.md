@@ -14,7 +14,7 @@ Codepresso is a **team workflow plugin** for Claude Code that provides GitHub PR
 
 ```
 codepresso-plugin/
-├── hooks/hooks.json               # 4 hook declarations (SessionStart, UserPromptSubmit, PostToolUse:Bash, Stop)
+├── hooks/hooks.json               # 5 hook declarations (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse:Bash, Stop)
 ├── scripts/
 │   ├── lib/                        # Shared libraries (config, stdin, git, batching, scoring)
 │   │   ├── stdin.mjs              # Timeout-protected stdin reader (5s timeout)
@@ -25,9 +25,11 @@ codepresso-plugin/
 │   │   ├── redactor.mjs           # Sensitive data redaction (11 patterns + custom)
 │   │   ├── rate-limiter.mjs       # PR comment rate limiting (hourly + session)
 │   │   ├── logger.mjs             # Debug logger (writes to ~/.codepresso/logs/)
-│   │   └── analytics.mjs          # Analytics persistence (sessions.jsonl)
-│   ├── session-start.mjs          # SessionStart hook: detect branch/PR, cache state + headCommit
+│   │   ├── analytics.mjs          # Analytics persistence (sessions.jsonl)
+│   │   └── notion-tasks.mjs       # Notion task fetcher with unique ID extraction
+│   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, cache state
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit hook: batch prompts silently
+│   ├── pre-tool-notion-inject.mjs # PreToolUse hook: task picker + PR title enforcement
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash hook: detect git commit/push
 │   ├── session-end.mjs            # Stop hook: force-flush remaining batch
 │   └── score-and-post.mjs         # Detached process: score batch + post PR comment
@@ -56,10 +58,11 @@ User Prompt → UserPromptSubmit hook → redact secrets → batch queue (.jsonl
                                           ↓
                                      API scoring → PR comment via `gh` → apply PR labels (first flush)
 
-Git Commit → PostToolUse:Bash hook → detached `gh pr comment`
-
-Session Start → SessionStart hook → detect branch → find PR → cache state
-Session End  → Stop hook → force-flush remaining batch
+Session Start → SessionStart hook → detect branch → find PR → fetch Notion tasks → cache state
+First Tool  → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save selection
+PR Create   → PreToolUse hook → detect `gh pr create` → enforce "[TSK-XXXX] title" format → Notion auto-links PR
+Git Commit  → PostToolUse:Bash hook → detached `gh pr comment`
+Session End → Stop hook → force-flush remaining batch
 ```
 
 ---
@@ -78,7 +81,10 @@ Prompts are appended to `.omc/state/codepresso-batch.jsonl` as atomic line write
 ### 4. Two-Level Config Merge
 `defaults ← ~/.codepresso/config.json ← .codepresso.json`. Merge is **shallow per-section**: project values override global values within each top-level key but don't replace entire sections. See `scripts/lib/config.mjs:mergeSections()`.
 
-### 5. OMC Coexistence
+### 5. Notion–GitHub Auto-Linking via PR Title
+The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) from task pages and enforces a `[UNIQUE-ID] description` PR title format. When `gh pr create` is detected without the Notion ID prefix, the hook **blocks** the command and instructs Claude to re-run with the correct format. This enables Notion's GitHub integration to automatically link PRs to tasks.
+
+### 6. OMC Coexistence
 - State files: all prefixed `codepresso-*` in `.omc/state/`
 - Config: separate path `~/.codepresso/config.json` (not `~/.claude/`)
 - Skills: all use `codepresso:` prefix
@@ -92,7 +98,17 @@ Prompts are appended to `.omc/state/codepresso-batch.jsonl` as atomic line write
 - **Timeout:** 5s
 - **Input:** Standard hook stdin (session metadata)
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Writes `.omc/state/codepresso-session.json`
+- **Side effects:** Writes `.omc/state/codepresso-session.json` (branch, PR, Notion tasks with unique IDs)
+- **Failure mode:** Silent (returns `{ continue: true }` on error)
+
+### PreToolUse (`scripts/pre-tool-notion-inject.mjs`)
+- **Timeout:** 3s
+- **Matcher:** `*` (all tools)
+- **Input:** `hookInput.toolName` and `hookInput.toolInput` from stdin
+- **Output:** `{ continue: true/false, hookSpecificOutput?: { hookEventName, additionalContext } }`
+- **Behavior 1 — Task Picker:** On first tool use, injects cached Notion tasks as `additionalContext` with instructions for Claude to present an interactive `AskUserQuestion` picker. Filters out completed tasks, sorts by status. Includes Notion unique IDs (e.g., `TSK-9945`) when available.
+- **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads `.omc/state/codepresso-selected-task.json`. If a task with a `uniqueId` is selected and the PR title doesn't include it, **blocks** the command (`continue: false`) and instructs Claude to prefix the title with the Notion ID for auto-linking.
+- **Side effects:** Writes `notionContextShown` flag to session file; reads selected task file
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
 ### UserPromptSubmit (`scripts/user-prompt-logger.mjs`)
@@ -125,7 +141,8 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `codepresso-session.json` | JSON | Cached branch, PR number, session ID, labelsApplied flag |
+| `codepresso-session.json` | JSON | Cached branch, PR number, session ID, Notion tasks (with uniqueId), labelsApplied flag |
+| `codepresso-selected-task.json` | JSON | Currently selected Notion task (`{ id, title, uniqueId }`) for PR title enforcement |
 | `codepresso-batch.jsonl` | JSONL | Pending prompt queue (redacted) |
 | `codepresso-batch-timer.json` | JSON | Flush timer (`{ startedAt: epoch_ms }`) |
 | `codepresso-flush-*.json` | JSON | Temporary scoring payloads (auto-cleaned) |
@@ -238,6 +255,12 @@ echo '{}' | node scripts/session-start.mjs
 # Test user-prompt-logger with a mock prompt
 echo '{"hookInput":{"userPrompt":"fix the auth bug"}}' | node scripts/user-prompt-logger.mjs
 
+# Test pre-tool-notion-inject: gh pr create without Notion ID (should block)
+echo '{"hookInput":{"toolName":"Bash","toolInput":{"command":"gh pr create --title \"Add feature\" --body \"test\""}}}' | node scripts/pre-tool-notion-inject.mjs
+
+# Test pre-tool-notion-inject: gh pr create with Notion ID (should pass)
+echo '{"hookInput":{"toolName":"Bash","toolInput":{"command":"gh pr create --title \"TSK-9945 Add feature\" --body \"test\""}}}' | node scripts/pre-tool-notion-inject.mjs
+
 # Test git-watcher with a mock commit output
 echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1234] test"}' | node scripts/post-tool-git-watcher.mjs
 ```
@@ -253,6 +276,7 @@ echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1
 
 ### Performance Rules
 
+- **PreToolUse hook MUST complete in <3s** — stdin parse + file reads only, no network
 - **UserPromptSubmit hook MUST complete in <3s** — no API calls, no network
 - **SessionStart hook MUST complete in <5s** — one `gh` CLI call max
 - **PostToolUse hook MUST complete in <3s** — spawn detached for `gh` calls
