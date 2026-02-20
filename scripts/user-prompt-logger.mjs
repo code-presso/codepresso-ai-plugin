@@ -9,8 +9,10 @@ import { readStdin } from './lib/stdin.mjs';
 import { loadConfig, isExcluded } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { appendToBatch, flushIfReady } from './lib/pr-comment.mjs';
+import { getCurrentBranch, isMainBranch } from './lib/git-utils.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 
 const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
 const log = createLogger('prompt-logger');
@@ -35,6 +37,42 @@ async function main() {
 
       if (config.prLogging?.enabled && !isExcluded(prompt, config.excludePatterns)) {
         const session = readSession();
+
+        // Lazy PR detection: if no PR cached, try to find one for the current branch
+        if (session && !session.prNumber) {
+          const currentBranch = getCurrentBranch();
+          if (currentBranch && !isMainBranch(currentBranch)) {
+            // Spawn detached process to find PR and update session file (non-blocking)
+            const sessionFile = SESSION_FILE;
+            const cwd = process.cwd();
+            const script = `
+              const fs = require('fs');
+              const { execSync } = require('child_process');
+              try {
+                const session = JSON.parse(fs.readFileSync(${JSON.stringify(sessionFile)}, 'utf-8'));
+                const branch = ${JSON.stringify(currentBranch)};
+                const output = execSync(
+                  'gh pr list --head "' + branch + '" --json number,url --limit 1',
+                  { cwd: ${JSON.stringify(cwd)}, encoding: 'utf-8', timeout: 10000, stdio: ['pipe','pipe','pipe'] }
+                );
+                const prs = JSON.parse(output);
+                if (prs && prs.length > 0) {
+                  session.branch = branch;
+                  session.prNumber = prs[0].number;
+                  session.prUrl = prs[0].url;
+                  fs.writeFileSync(${JSON.stringify(sessionFile)}, JSON.stringify(session, null, 2), 'utf-8');
+                }
+              } catch {}
+            `;
+            const child = spawn(process.execPath, ['-e', script], {
+              detached: true,
+              stdio: 'ignore',
+              cwd,
+            });
+            child.unref();
+          }
+        }
+
         if (session && session.prNumber) {
           // Truncate prompt if configured
           const maxLen = config.prLogging.truncatePromptLength || 500;

@@ -66,12 +66,24 @@ function extractStatus(properties) {
 }
 
 /**
- * Fetch tasks from the configured Notion database.
- * Returns a formatted task list string, or null if Notion is not configured or the call fails.
- *
- * @returns {Promise<string|null>} Formatted task list or null
+ * Check if a task status represents a completed state.
+ * @param {string|null} status
+ * @returns {boolean}
  */
-export async function fetchNotionTasks(timeoutMs = FETCH_TIMEOUT_MS) {
+export function isCompletedStatus(status) {
+  if (!status) return false;
+  const normalized = status.toLowerCase().trim();
+  return normalized === '완료' || normalized === 'done' || normalized === 'completed';
+}
+
+/**
+ * Fetch tasks from the configured Notion database with structured data.
+ * Returns both a formatted string and structured task objects, or null if not configured.
+ *
+ * @param {number} [timeoutMs=FETCH_TIMEOUT_MS]
+ * @returns {Promise<{formatted: string, tasks: Array<{id: string, title: string, status: string|null}>}|null>}
+ */
+export async function fetchNotionTasksStructured(timeoutMs = FETCH_TIMEOUT_MS) {
   const notion = loadNotionConfig();
 
   if (!notion.apiKey || !notion.defaultDatabaseId) {
@@ -82,7 +94,6 @@ export async function fetchNotionTasks(timeoutMs = FETCH_TIMEOUT_MS) {
     page_size: 20,
   };
 
-  // Filter by assignee if userId is configured
   if (notion.userId) {
     body.filter = {
       property: notion.assigneeProperty,
@@ -90,7 +101,6 @@ export async function fetchNotionTasks(timeoutMs = FETCH_TIMEOUT_MS) {
     };
   }
 
-  // Sort by last edited (most recent first) — avoids hardcoded property names
   body.sorts = [
     { timestamp: 'last_edited_time', direction: 'descending' },
   ];
@@ -124,29 +134,48 @@ export async function fetchNotionTasks(timeoutMs = FETCH_TIMEOUT_MS) {
       const pages = data.results || [];
 
       if (pages.length === 0) {
-        return notion.userId
+        const msg = notion.userId
           ? 'No tasks assigned to you in Notion.'
           : 'No tasks found in Notion database.';
+        return { formatted: msg, tasks: [] };
       }
 
       const tasks = pages.map((page) => {
         const title = extractTitle(page.properties);
         const status = extractStatus(page.properties);
-        const statusStr = status ? ` (${status})` : '';
-        return `- ${title}${statusStr}`;
+        return { id: page.id, title, status };
+      });
+
+      const lines = tasks.map((t) => {
+        const statusStr = t.status ? ` (${t.status})` : '';
+        return `- ${t.title}${statusStr}`;
       });
 
       const header = notion.userId
         ? `Your Notion Tasks (${pages.length}):`
         : `Notion Tasks (${pages.length}):`;
 
-      return `${header}\n${tasks.join('\n')}`;
+      return {
+        formatted: `${header}\n${lines.join('\n')}`,
+        tasks,
+      };
     } catch {
       clearTimeout(timeout);
       throw new Error('Fetch failed');
     }
   } catch {
-    // Network error, timeout, or parse error — fail silently
     return null;
   }
+}
+
+/**
+ * Fetch tasks from the configured Notion database.
+ * Returns a formatted task list string, or null if Notion is not configured or the call fails.
+ *
+ * @param {number} [timeoutMs=FETCH_TIMEOUT_MS]
+ * @returns {Promise<string|null>} Formatted task list or null
+ */
+export async function fetchNotionTasks(timeoutMs = FETCH_TIMEOUT_MS) {
+  const result = await fetchNotionTasksStructured(timeoutMs);
+  return result ? result.formatted : null;
 }
