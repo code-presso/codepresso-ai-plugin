@@ -201,6 +201,8 @@ function scoreAndPost(entries, meta, prNumber) {
     prNumber,
     scoringEnabled: scoringConfig.enabled !== false,
     scoringModel: scoringConfig.model || null,
+    scoringBackend: scoringConfig.backend || 'anthropic',
+    scoringAwsRegion: scoringConfig.awsRegion || 'us-east-1',
   };
 
   const tmpFile = join(STATE_DIR, `codepresso-flush-${Date.now()}.json`);
