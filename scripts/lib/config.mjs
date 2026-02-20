@@ -24,7 +24,9 @@ const DEFAULT_CONFIG = {
   },
   scoring: {
     enabled: true,
+    backend: 'anthropic',           // 'anthropic' | 'bedrock'
     model: 'claude-haiku-4-5-20251001',
+    awsRegion: 'us-east-1',        // Only used when backend is 'bedrock'
   },
   deploy: {
     enabled: false,
@@ -165,6 +167,10 @@ export function validateConfig(config) {
   if (config.scoring) {
     if (typeof config.scoring.enabled !== 'undefined' && typeof config.scoring.enabled !== 'boolean') {
       warnings.push(`scoring.enabled should be boolean, got ${typeof config.scoring.enabled}`);
+    }
+    const validBackends = ['anthropic', 'bedrock'];
+    if (config.scoring.backend && !validBackends.includes(config.scoring.backend)) {
+      warnings.push(`scoring.backend "${config.scoring.backend}" is not valid. Use: ${validBackends.join(', ')}`);
     }
   }
 
