@@ -9,7 +9,7 @@ import { readStdin } from './lib/stdin.mjs';
 import { loadConfig, isSetupComplete } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit } from './lib/git-utils.mjs';
-import { fetchNotionTasks } from './lib/notion-tasks.mjs';
+import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -70,11 +70,13 @@ async function main() {
 
     // Fetch Notion tasks (non-blocking, timeout-protected) — always, regardless of branch
     let notionContext = null;
+    let notionTasks = null;
     try {
-      const taskList = await fetchNotionTasks();
-      if (taskList) {
-        notionContext = taskList;
-        contextParts.push(taskList);
+      const result = await fetchNotionTasksStructured();
+      if (result) {
+        notionContext = result.formatted;
+        notionTasks = result.tasks;
+        contextParts.push(result.formatted);
       }
     } catch {
       // Notion fetch failed — skip silently
@@ -89,6 +91,7 @@ async function main() {
       labelsApplied: false,
       headCommit: getHeadCommit(),
       notionContext,
+      notionTasks,
       notionContextShown: false,
     };
 
