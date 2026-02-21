@@ -100,7 +100,7 @@ export function getGitRoot(cwd = process.cwd()) {
  */
 export function listSubmodules(cwd = process.cwd()) {
   try {
-    const output = execSync('git submodule foreach --quiet "echo $sm_path"', {
+    const output = execSync("git submodule foreach --quiet 'echo $sm_path'", {
       cwd,
       encoding: 'utf-8',
       timeout: 5000,
