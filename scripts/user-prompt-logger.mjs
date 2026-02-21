@@ -7,10 +7,11 @@
 
 import { readStdin } from './lib/stdin.mjs';
 import { loadConfig, isExcluded } from './lib/config.mjs';
+import { isTrivial } from './lib/trivial-filter.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { appendToBatch, flushIfReady } from './lib/pr-comment.mjs';
 import { getCurrentBranch, isMainBranch } from './lib/git-utils.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 
@@ -36,6 +37,21 @@ async function main() {
       const config = loadConfig();
 
       if (config.prLogging?.enabled && !isExcluded(prompt, config.excludePatterns)) {
+        // Skip trivial prompts (short or acknowledgment-only)
+        if (isTrivial(prompt, config.trivialFilter)) {
+          try {
+            const session = readSession();
+            if (session) {
+              session.skippedTrivialCount = (session.skippedTrivialCount || 0) + 1;
+              writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+            }
+          } catch {
+            // Silent — never block on counter increment
+          }
+          process.stdout.write(JSON.stringify({ continue: true }));
+          return;
+        }
+
         const session = readSession();
 
         // Lazy PR detection: if no PR cached, try to find one for the current branch

@@ -11,6 +11,27 @@ import { join } from 'node:path';
 import { scorePrompts } from './lib/prompt-scorer.mjs';
 import { recordFlush } from './lib/analytics.mjs';
 
+const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
+
+function readSkippedCount() {
+  try {
+    const session = JSON.parse(readFileSync(SESSION_FILE, 'utf-8'));
+    return session.skippedTrivialCount || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function resetSkippedCount() {
+  try {
+    const session = JSON.parse(readFileSync(SESSION_FILE, 'utf-8'));
+    session.skippedTrivialCount = 0;
+    writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+  } catch {
+    // Silent
+  }
+}
+
 async function main() {
   const payloadPath = process.argv[2];
   if (!payloadPath) process.exit(1);
@@ -51,7 +72,8 @@ async function main() {
     // Analytics failure must never block PR comment
   }
 
-  const body = formatComment(entries, scores, meta, scoringBackend);
+  const skippedCount = readSkippedCount();
+  const body = formatComment(entries, scores, meta, scoringBackend, skippedCount);
 
   // Post to PR via temp file (avoids shell escaping issues with backticks)
   const bodyFile = join(meta.cwd || process.cwd(), '.omc', 'state', `codepresso-comment-${Date.now()}.md`);
@@ -62,6 +84,7 @@ async function main() {
       timeout: 30000,
       stdio: 'ignore',
     });
+    if (skippedCount > 0) resetSkippedCount();
   } catch {
     // Silent failure
   } finally {
@@ -69,7 +92,7 @@ async function main() {
   }
 }
 
-function formatComment(entries, scores, meta, backend) {
+function formatComment(entries, scores, meta, backend, skippedCount = 0) {
   const sessionLabel = meta.sessionId ? meta.sessionId.slice(0, 8) : 'unknown';
   const hasScores = scores.some(s => s !== null);
   const validScores = scores.filter(s => s !== null);
@@ -134,6 +157,12 @@ function formatComment(entries, scores, meta, backend) {
     lines.push('**Good prompts include:** the specific change, target file/function, and expected behavior.');
     lines.push('');
     lines.push('</details>');
+  }
+
+  // Skipped trivial prompts footer
+  if (skippedCount > 0) {
+    lines.push('');
+    lines.push(`> :information_source: ${skippedCount} trivial prompt${skippedCount === 1 ? '' : 's'} skipped (short or acknowledgment-only)`);
   }
 
   // Footer
