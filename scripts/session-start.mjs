@@ -8,7 +8,7 @@
 import { readStdin } from './lib/stdin.mjs';
 import { loadConfig, isSetupComplete } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
-import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit } from './lib/git-utils.mjs';
+import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -45,13 +45,14 @@ async function main() {
 
   try {
     const config = loadConfig();
-    const branch = getCurrentBranch();
+    const gitRoot = getGitRoot();
+    const branch = getCurrentBranch(gitRoot);
     const onMainBranch = !branch || isMainBranch(branch);
     const sessionId = randomUUID();
     let pr = null;
 
     if (!onMainBranch) {
-      pr = findPrForBranch(branch);
+      pr = findPrForBranch(branch, gitRoot);
     }
 
     log.info(`Branch: ${branch || '(none)'}, PR: ${pr?.number || 'none'}`);
@@ -83,13 +84,14 @@ async function main() {
     }
 
     const sessionState = {
+      gitRoot,
       branch,
       prNumber: pr?.number || null,
       prUrl: pr?.url || null,
       sessionId,
       startedAt: new Date().toISOString(),
       labelsApplied: false,
-      headCommit: getHeadCommit(),
+      headCommit: getHeadCommit(gitRoot),
       notionContext,
       notionTasks,
       notionContextShown: false,

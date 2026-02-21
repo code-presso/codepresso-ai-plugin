@@ -73,6 +73,26 @@ export function getHeadCommit(cwd = process.cwd()) {
 }
 
 /**
+ * Resolve the root of the current git repository.
+ * In a submodule, returns the submodule root (not the parent superproject),
+ * so that git/gh operations target the submodule's own remote.
+ * @param {string} [cwd] - Working directory
+ * @returns {string} Absolute path to git root
+ */
+export function getGitRoot(cwd = process.cwd()) {
+  try {
+    return execSync('git rev-parse --show-toplevel', {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    return cwd;
+  }
+}
+
+/**
  * Get the diff between a start commit and HEAD.
  * @param {string} startCommit - Commit hash to diff from
  * @param {string} [cwd] - Working directory

@@ -44,7 +44,7 @@ async function main() {
           if (currentBranch && !isMainBranch(currentBranch)) {
             // Spawn detached process to find PR and update session file (non-blocking)
             const sessionFile = SESSION_FILE;
-            const cwd = process.cwd();
+            const cwd = session?.gitRoot || process.cwd();
             const script = `
               const fs = require('fs');
               const { execSync } = require('child_process');
@@ -93,7 +93,7 @@ async function main() {
 
           // Check if batch should flush (non-blocking)
           flushIfReady(
-            { prNumber: session.prNumber, branch: session.branch, sessionId: session.sessionId },
+            { prNumber: session.prNumber, branch: session.branch, sessionId: session.sessionId, gitRoot: session.gitRoot },
             {
               batchIntervalSeconds: config.prLogging.batchIntervalSeconds,
               maxBatchSize: config.prLogging.maxBatchSize,
