@@ -52,6 +52,16 @@ const DEFAULT_CONFIG = {
     enabled: true,
     labels: ['ai-assisted'],
   },
+  trivialFilter: {
+    enabled: true,
+    minPromptLength: 20,
+    trivialPatterns: [
+      'ok', 'okay', '확인', '네', '응', 'ㅇㅇ',
+      'yes', 'no', 'sure', 'thanks', 'thx', 'ty',
+      'push', 'pull', 'done', 'next', 'go', 'run',
+      'lgtm', '좋아', 'ㄱㄱ', 'y', 'n', 'continue', 'proceed',
+    ],
+  },
   excludePatterns: ['^/oh-my-claudecode:', '^(cancelomc|stopomc)$'],
   debug: false,
 };
@@ -149,7 +159,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
