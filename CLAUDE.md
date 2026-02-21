@@ -58,7 +58,7 @@ User Prompt → UserPromptSubmit hook → redact secrets → batch queue (.jsonl
                                           ↓
                                      API scoring → PR comment via `gh` → apply PR labels (first flush)
 
-Session Start → SessionStart hook → detect branch → find PR → fetch Notion tasks → cache state
+Session Start → SessionStart hook → resolve gitRoot → detect branch → find PR → fetch Notion tasks → cache state
 First Tool  → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save selection
 PR Create   → PreToolUse hook → detect `gh pr create` → enforce "[TSK-XXXX] title" format → Notion auto-links PR
 Git Commit  → PostToolUse:Bash hook → detached `gh pr comment`
@@ -90,6 +90,9 @@ The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) fr
 - Skills: all use `codepresso:` prefix
 - Exclude patterns: regex-based filtering of OMC commands from logs
 
+### 7. Monorepo / Submodule Support
+The plugin resolves `gitRoot` via `git rev-parse --show-toplevel` at session start and passes it to all git/gh operations. When the top-level repo is on a main branch (no PR), the session-start hook enumerates submodules and checks each for non-main branches with open PRs. The first match becomes the session's primary PR context (`gitRoot`, `branch`, `prNumber`), enabling prompt logging and git activity tracking for submodule PRs. The `activeSubmodule` field in session state tracks which submodule was selected.
+
 ---
 
 ## Hook Contracts
@@ -98,7 +101,7 @@ The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) fr
 - **Timeout:** 5s
 - **Input:** Standard hook stdin (session metadata)
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Writes `.omc/state/codepresso-session.json` (branch, PR, Notion tasks with unique IDs)
+- **Side effects:** Writes `.omc/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs). Scans submodules for active PRs when top-level repo has none.
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
 ### PreToolUse (`scripts/pre-tool-notion-inject.mjs`)
@@ -141,7 +144,7 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `codepresso-session.json` | JSON | Cached branch, PR number, session ID, Notion tasks (with uniqueId), labelsApplied flag |
+| `codepresso-session.json` | JSON | Cached gitRoot, activeSubmodule, branch, PR number, session ID, Notion tasks (with uniqueId), labelsApplied flag |
 | `codepresso-selected-task.json` | JSON | Currently selected Notion task (`{ id, title, uniqueId }`) for PR title enforcement |
 | `codepresso-batch.jsonl` | JSONL | Pending prompt queue (redacted) |
 | `codepresso-batch-timer.json` | JSON | Flush timer (`{ startedAt: epoch_ms }`) |
