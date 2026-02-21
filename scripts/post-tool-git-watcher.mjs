@@ -86,7 +86,7 @@ async function main() {
         hash: commitInfo.hash,
         message: commitInfo.message,
         timestamp: new Date().toISOString(),
-      });
+      }, session.gitRoot);
 
       try {
         recordGitCommit({

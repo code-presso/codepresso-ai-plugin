@@ -247,7 +247,7 @@ function scoreAndPost(entries, meta, prNumber) {
   const scriptPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'score-and-post.mjs');
 
   const child = spawn('node', [scriptPath, tmpFile], {
-    cwd: process.cwd(),
+    cwd: meta.cwd || process.cwd(),
     detached: true,
     stdio: 'ignore',
   });
@@ -283,7 +283,7 @@ export function flushIfReady(session, config = {}) {
 
   if (shouldFlush) {
     // Check if PR is still open before wasting a scoring call
-    if (!isPrOpen(session.prNumber)) {
+    if (!isPrOpen(session.prNumber, session.gitRoot)) {
       clearBatch();
       clearTimerState();
       clearSessionPr();
@@ -298,6 +298,7 @@ export function flushIfReady(session, config = {}) {
       scoreAndPost(entries, {
         branch: session.branch,
         sessionId: session.sessionId,
+        cwd: session.gitRoot,
       }, session.prNumber);
       clearBatch();
       clearTimerState();
@@ -305,7 +306,7 @@ export function flushIfReady(session, config = {}) {
       // Apply PR labels on first successful flush
       const prLabelsConfig = loadConfig().prLabels || {};
       if (prLabelsConfig.enabled !== false) {
-        applyPrLabels(session.prNumber, prLabelsConfig.labels);
+        applyPrLabels(session.prNumber, prLabelsConfig.labels, session.gitRoot);
       }
     } finally {
       releaseLock();
@@ -324,7 +325,7 @@ export function forceFlush(session) {
   if (entries.length === 0) return;
 
   // Check if PR is still open before wasting a scoring call
-  if (!isPrOpen(session.prNumber)) {
+  if (!isPrOpen(session.prNumber, session.gitRoot)) {
     clearBatch();
     clearTimerState();
     clearSessionPr();
@@ -340,6 +341,7 @@ export function forceFlush(session) {
     scoreAndPost(entries, {
       branch: session.branch,
       sessionId: session.sessionId,
+      cwd: session.gitRoot,
     }, session.prNumber);
     clearBatch();
     clearTimerState();
@@ -347,7 +349,7 @@ export function forceFlush(session) {
     // Apply PR labels on first successful flush
     const prLabelsConfig = loadConfig().prLabels || {};
     if (prLabelsConfig.enabled !== false) {
-      applyPrLabels(session.prNumber, prLabelsConfig.labels);
+      applyPrLabels(session.prNumber, prLabelsConfig.labels, session.gitRoot);
     }
   } finally {
     releaseLock();

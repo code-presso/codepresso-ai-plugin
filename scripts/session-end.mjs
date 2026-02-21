@@ -34,6 +34,7 @@ async function main() {
         prNumber: session.prNumber,
         branch: session.branch,
         sessionId: session.sessionId,
+        gitRoot: session.gitRoot,
       });
     }
 
