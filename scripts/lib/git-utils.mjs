@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process';
+import { join } from 'node:path';
 
 /**
  * Get the current git branch name.
@@ -89,6 +90,29 @@ export function getGitRoot(cwd = process.cwd()) {
     }).trim();
   } catch {
     return cwd;
+  }
+}
+
+/**
+ * List git submodules in the given repository.
+ * @param {string} [cwd] - Working directory (should be repo root)
+ * @returns {Array<{ path: string, absPath: string }>} Submodule paths
+ */
+export function listSubmodules(cwd = process.cwd()) {
+  try {
+    const output = execSync('git submodule foreach --quiet "echo $sm_path"', {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (!output) return [];
+    return output.split('\n').map(p => ({
+      path: p.trim(),
+      absPath: join(cwd, p.trim()),
+    }));
+  } catch {
+    return [];
   }
 }
 
