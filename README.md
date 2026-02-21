@@ -10,6 +10,7 @@ Team workflow plugin for Claude Code — GitHub PR logging, prompt scoring, opti
 - **Deploy Integration** (optional): Trigger deployments from Claude Code — ECS, CodePipeline, or custom
 - **Notion Task Picker**: Pick your Notion task at session start — auto-updates status, creates branch, and enforces PR title format for auto-linking
 - **OMC Compatible**: Runs alongside oh-my-claudecode with zero conflicts
+- **Monorepo / Submodule Support**: Automatically detects submodule PRs when working from a monorepo root
 
 ## Installation
 
@@ -54,6 +55,7 @@ Or manually create `~/.codepresso/config.json`:
   },
   "scoring": {
     "enabled": true,
+    "backend": "anthropic",
     "model": "claude-haiku-4-5-20251001"
   },
   "deploy": {
@@ -144,11 +146,13 @@ Remaining prompt logs are flushed to the PR. Done.
 ### Session Start
 
 When you start Claude Code, Codepresso:
-1. Detects the current branch
-2. Finds the associated PR via `gh pr list`
-3. Fetches your Notion tasks (with unique IDs like `TSK-9945`)
-4. Caches everything to `.omc/state/codepresso-session.json`
-5. Displays PR status: `[Codepresso] PR #42 detected. Prompts will be logged.`
+1. Resolves the git root via `git rev-parse --show-toplevel`
+2. Detects the current branch
+3. Finds the associated PR via `gh pr list`
+4. If no PR found (e.g., monorepo root on `main`), scans submodules for active branches with open PRs
+5. Fetches your Notion tasks (with unique IDs like `TSK-9945`)
+6. Caches everything to `.omc/state/codepresso-session.json` (including `gitRoot` and `activeSubmodule`)
+7. Displays PR status: `[Codepresso] PR #42 detected. Prompts will be logged.`
 
 ### Prompt Logging + Scoring
 
@@ -157,7 +161,7 @@ Every user prompt is:
 2. Truncated to configured length
 3. Appended to a JSONL batch file
 4. Flushed to the PR as a grouped comment when the batch interval expires or max size is reached
-5. Scored 0-10 by Haiku at flush time (if `ANTHROPIC_API_KEY` is set and scoring enabled)
+5. Scored 0-10 by Haiku at flush time (via Anthropic API or AWS Bedrock, depending on config)
 
 PR comments look like:
 
@@ -224,7 +228,7 @@ Then say "deploy to staging" in Claude Code.
 |-------|---------|-------------|
 | `codepresso:setup` | "setup codepresso" | Interactive configuration wizard |
 | `codepresso:status` | "codepresso status" | Plugin status and diagnostics |
-| `codepresso:log` | "codepresso log" | Manually post session summary to PR |
+| `codepresso:log` | "codepresso log" | Manually flush prompts with scoring to PR |
 | `codepresso:dashboard` | "codepresso dashboard" | Team analytics dashboard |
 | `codepresso:notion-sync` | "sync notion tasks" | Query/update Notion database tasks |
 | `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
@@ -271,7 +275,6 @@ Codepresso is designed to run alongside oh-my-claudecode without conflicts:
 
 - Node.js >= 20
 - `gh` CLI installed and authenticated (`gh auth login`)
-- `ANTHROPIC_API_KEY` env var (for prompt scoring, optional)
 - Notion API key (optional, for Notion features)
 - AWS CLI configured (optional, for deploy features)
 
@@ -286,6 +289,7 @@ codepresso-plugin/
 │   │   ├── stdin.mjs              # Timeout-protected stdin reader
 │   │   ├── config.mjs             # Config loader (global + per-project)
 │   │   ├── git-utils.mjs          # Branch/PR detection
+│   │   ├── git-root.mjs           # Session gitRoot reader for hooks
 │   │   ├── pr-comment.mjs         # Batched PR comment posting
 │   │   ├── prompt-scorer.mjs      # Prompt scoring via Anthropic API
 │   │   ├── redactor.mjs           # Sensitive data redaction
@@ -298,7 +302,8 @@ codepresso-plugin/
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit: batch prompts silently
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit/push tracking
 │   ├── session-end.mjs            # Stop: force-flush remaining batch
-│   └── score-and-post.mjs         # Detached scorer + poster
+│   ├── score-and-post.mjs         # Detached scorer + poster
+│   └── manual-flush.mjs           # CLI: on-demand scored flush to PR
 ├── skills/
 │   ├── setup/SKILL.md             # Setup wizard
 │   ├── status/SKILL.md            # Plugin diagnostics
