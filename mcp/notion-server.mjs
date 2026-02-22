@@ -25,6 +25,7 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelco
 
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { buildSprintContext, fetchSprintWithEpics, PROPERTY_TYPES, readTaskStatus } from '../scripts/lib/sprint-context.mjs';
 
 const CONFIG_PATH = join(homedir(), '.codepresso', 'config.json');
 
@@ -184,6 +185,65 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: 'notion_sprint_context',
+    description: 'Get the current sprint with its epics and tasks in a hierarchical view. Returns Sprint > Epic > Task tree with progress metrics.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        include_completed: {
+          type: 'boolean',
+          description: 'Include completed tasks/epics (default: false)',
+        },
+        assignee_only: {
+          type: 'boolean',
+          description: 'Filter tasks to configured user only (default: true)',
+        },
+      },
+    },
+  },
+  {
+    name: 'notion_sprint_progress',
+    description: 'Get sprint progress metrics: completion rate per epic, blockers, velocity estimate.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sprint_id: {
+          type: 'string',
+          description: 'Sprint page ID (defaults to current sprint)',
+        },
+      },
+    },
+  },
+  {
+    name: 'notion_update_task_status',
+    description: 'Update a task status in Notion and optionally check if its parent epic should be auto-completed when all tasks are done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: 'Task page ID' },
+        new_status: { type: 'string', description: 'New status value (e.g., "진행 중", "완료")' },
+        check_epic_completion: {
+          type: 'boolean',
+          description: 'Check if all tasks in the epic are done and auto-update epic (default: true)',
+        },
+      },
+      required: ['task_id', 'new_status'],
+    },
+  },
+  {
+    name: 'notion_sprint_retro',
+    description: 'Generate sprint retrospective data: completed work summary, velocity metrics, task distribution by assignee and category.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sprint_id: {
+          type: 'string',
+          description: 'Sprint page ID (defaults to current sprint)',
+        },
+      },
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -290,6 +350,224 @@ async function handleGetUsers(args) {
   return { users, has_more: result.has_more, next_cursor: result.next_cursor };
 }
 
+async function handleSprintContext(args) {
+  const notionConfig = loadNotionConfig();
+  if (!notionConfig.databases?.sprint) {
+    throw new Error('Sprint database not configured. Add notion.databases.sprint to ~/.codepresso/config.json');
+  }
+
+  const config = {
+    apiKey: notionConfig.apiKey,
+    databases: notionConfig.databases,
+    userId: args.assignee_only !== false ? notionConfig.userId : null,
+    assigneeProperty: notionConfig.assigneeProperty || '담당자',
+    sprintWorkflow: notionConfig.sprintWorkflow || {},
+  };
+
+  const context = await buildSprintContext(config);
+  if (!context) {
+    throw new Error('Could not fetch sprint context. Check that sprint database ID is correct.');
+  }
+
+  // Filter completed if requested
+  if (!args.include_completed) {
+    for (const epic of context.epics) {
+      epic.tasks = (epic.tasks || []).filter(t => t.status !== '완료');
+    }
+    // Recalculate summary
+    let totalTasks = 0;
+    for (const epic of context.epics) {
+      totalTasks += epic.tasks.length;
+    }
+    context.summary.totalTasks = totalTasks;
+  }
+
+  return context;
+}
+
+async function handleSprintProgress(args) {
+  const notionConfig = loadNotionConfig();
+  if (!notionConfig.databases?.sprint) {
+    throw new Error('Sprint database not configured.');
+  }
+
+  const config = {
+    apiKey: notionConfig.apiKey,
+    databases: notionConfig.databases,
+    userId: null, // Progress shows all tasks, not just user's
+    sprintWorkflow: notionConfig.sprintWorkflow || {},
+  };
+
+  const context = await buildSprintContext(config);
+  if (!context) {
+    throw new Error('Could not fetch sprint data.');
+  }
+
+  const sprint = context.sprint;
+  const now = new Date();
+  const startDate = sprint.dateRange?.start ? new Date(sprint.dateRange.start) : null;
+  const endDate = sprint.dateRange?.end ? new Date(sprint.dateRange.end) : null;
+  const daysElapsed = startDate ? Math.max(1, Math.ceil((now - startDate) / (1000 * 60 * 60 * 24))) : null;
+  const daysRemaining = endDate ? Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24))) : null;
+  const velocity = daysElapsed ? (context.summary.completedTasks / daysElapsed).toFixed(1) : null;
+
+  const epicProgress = context.epics.map(epic => {
+    const total = (epic.tasks || []).length;
+    const done = (epic.tasks || []).filter(t => t.status === '완료').length;
+    const blocked = (epic.tasks || []).filter(t => (t.blockedBy || []).length > 0 && t.status !== '완료').length;
+    return {
+      epicId: epic.uniqueId,
+      title: epic.title,
+      status: epic.status,
+      totalTasks: total,
+      completedTasks: done,
+      blockedTasks: blocked,
+      completionPct: total > 0 ? Math.round((done / total) * 100) : 0,
+    };
+  });
+
+  return {
+    sprint: { name: sprint.name, dateRange: sprint.dateRange, status: sprint.status },
+    overall: context.summary,
+    daysElapsed,
+    daysRemaining,
+    velocity: velocity ? `${velocity} tasks/day` : null,
+    epicProgress,
+  };
+}
+
+async function handleUpdateTaskStatus(args) {
+  const apiKey = loadNotionKey();
+  if (!apiKey) throw new Error('Notion API key not configured.');
+
+  // Update task status using "status" type (Task DB uses status, not select)
+  await notionFetch(
+    `/pages/${args.task_id}`,
+    'PATCH',
+    { properties: { [PROPERTY_TYPES.task.status.property]: { status: { name: args.new_status } } } }
+  );
+
+  let epicCompleted = false;
+  let epicId = null;
+  let epicTitle = null;
+
+  // Check epic completion if requested
+  if (args.check_epic_completion !== false && args.new_status === '완료') {
+    try {
+      // Get task page to find its epic
+      const taskPage = await notionFetch(`/pages/${args.task_id}`);
+      const epicRelation = taskPage?.properties?.[PROPERTY_TYPES.task.epic.property]?.relation;
+      if (epicRelation?.length > 0) {
+        epicId = epicRelation[0].id;
+
+        // Get epic page to find all its tasks
+        const epicPage = await notionFetch(`/pages/${epicId}`);
+        epicTitle = epicPage?.properties?.[PROPERTY_TYPES.epic.title.property]?.title?.[0]?.plain_text || '(untitled)';
+
+        // Check all tasks' status
+        const notionConfig = loadNotionConfig();
+        if (notionConfig.databases?.task) {
+          const taskData = await notionFetch(
+            `/databases/${notionConfig.databases.task}/query`,
+            'POST',
+            {
+              filter: { property: PROPERTY_TYPES.task.epic.property, relation: { contains: epicId } },
+              page_size: 100,
+            }
+          );
+
+          const allTasks = taskData?.results || [];
+          const allDone = allTasks.length > 0 && allTasks.every(t => {
+            const status = t.properties?.[PROPERTY_TYPES.task.status.property]?.status?.name;
+            return status === '완료';
+          });
+
+          if (allDone) {
+            // Update epic using "select" type (Epic DB uses select, not status!)
+            await notionFetch(
+              `/pages/${epicId}`,
+              'PATCH',
+              { properties: { [PROPERTY_TYPES.epic.status.property]: { select: { name: '배포 완료' } } } }
+            );
+            epicCompleted = true;
+          }
+        }
+      }
+    } catch {
+      // Epic cascade failed — task update already succeeded, don't throw
+    }
+  }
+
+  return { taskUpdated: true, newStatus: args.new_status, epicCompleted, epicId, epicTitle };
+}
+
+async function handleSprintRetro(args) {
+  const notionConfig = loadNotionConfig();
+  if (!notionConfig.databases?.sprint) {
+    throw new Error('Sprint database not configured.');
+  }
+
+  const config = {
+    apiKey: notionConfig.apiKey,
+    databases: notionConfig.databases,
+    userId: null,
+    sprintWorkflow: notionConfig.sprintWorkflow || {},
+  };
+
+  const context = await buildSprintContext(config);
+  if (!context) {
+    throw new Error('Could not fetch sprint data.');
+  }
+
+  // Contributor distribution
+  const contributors = {};
+  const categories = {};
+  let totalLeadTimeDays = 0;
+  let tasksWithLeadTime = 0;
+
+  for (const epic of context.epics) {
+    for (const task of (epic.tasks || [])) {
+      // Count by assignee
+      for (const a of (task.assignees || [])) {
+        const name = a.name || a.id;
+        contributors[name] = (contributors[name] || 0) + (task.status === '완료' ? 1 : 0);
+      }
+      // Count by category (validate property exists)
+      for (const cat of (task.categories || [])) {
+        categories[cat] = (categories[cat] || 0) + 1;
+      }
+      // Lead time (validate property exists)
+      if (task.dateRange?.start && task.dateRange?.end) {
+        const start = new Date(task.dateRange.start);
+        const end = new Date(task.dateRange.end);
+        const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+        if (days > 0) {
+          totalLeadTimeDays += days;
+          tasksWithLeadTime++;
+        }
+      }
+    }
+  }
+
+  const epicOutcomes = context.epics.map(epic => ({
+    epicId: epic.uniqueId,
+    title: epic.title,
+    status: epic.status,
+    completionPct: epic.completionPct,
+    taskCount: (epic.tasks || []).length,
+    completedCount: (epic.tasks || []).filter(t => t.status === '완료').length,
+  }));
+
+  return {
+    sprint: context.sprint,
+    completion: context.summary,
+    epicOutcomes,
+    contributors,
+    categoryDistribution: categories,
+    avgLeadTimeDays: tasksWithLeadTime > 0 ? (totalLeadTimeDays / tasksWithLeadTime).toFixed(1) : null,
+  };
+}
+
 // --- Server setup ---
 
 const server = new Server(
@@ -321,6 +599,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'notion_get_users':
         result = await handleGetUsers(args);
+        break;
+      case 'notion_sprint_context':
+        result = await handleSprintContext(args);
+        break;
+      case 'notion_sprint_progress':
+        result = await handleSprintProgress(args);
+        break;
+      case 'notion_update_task_status':
+        result = await handleUpdateTaskStatus(args);
+        break;
+      case 'notion_sprint_retro':
+        result = await handleSprintRetro(args);
         break;
       default:
         return {

@@ -139,8 +139,160 @@ function buildPickerContext(notionContext, notionTasks) {
     '      Use: { page_id: "<task-id>", properties: { "상태": { "status": { "name": "진행 중" } } } }',
     '   b. IMPORTANT: Save the selected task by writing a JSON file:',
     `      Run a small Node.js script to merge the selection into the existing file (preserving other branches):`,
-    `      node -e "const fs=require('fs'); const f=${JSON.stringify(SELECTED_TASK_FILE)}; let d={}; try{d=JSON.parse(fs.readFileSync(f,'utf-8'))}catch{} if(d.id)d={}; d['<CURRENT-BRANCH>']={id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>'}; fs.writeFileSync(f,JSON.stringify(d,null,2))"`,
+    `      node -e "const fs=require('fs'); const f=${JSON.stringify(SELECTED_TASK_FILE)}; let d={}; try{d=JSON.parse(fs.readFileSync(f,'utf-8'))}catch{} if(d.id)d={}; d['<CURRENT-BRANCH>']={id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>',epicId:null,epicUniqueId:null}; fs.writeFileSync(f,JSON.stringify(d,null,2))"`,
     `      Replace <CURRENT-BRANCH> with the actual current git branch name.`,
+    '   c. Ask the user if they want to create a feature branch for this task.',
+    '   d. If yes, suggest a branch name like "feature/<slugified-task-title>" and create it with `git checkout -b <branch-name>`.',
+    '3. If user selects "Other" or types a custom response, just acknowledge and proceed normally without updating Notion.',
+  ];
+
+  if (hasUniqueIds) {
+    instructions.push(
+      '',
+      'PR TITLE FORMAT (for Notion auto-linking):',
+      'When creating a PR for the selected task, ALWAYS prefix the title with the Notion unique ID.',
+      'Format: gh pr create --title "[UNIQUE-ID] description" ...',
+      'Example: gh pr create --title "[ENG-123] Add user authentication" ...',
+      'This enables Notion\'s GitHub integration to automatically link the PR to the task.',
+    );
+  }
+
+  return instructions.join('\n');
+}
+
+/**
+ * Build the picker instruction context with tasks grouped by epic.
+ * Used when session.sprintContext is available.
+ *
+ * @param {object} session - Full session object with sprintContext and notionTasks
+ */
+function buildHierarchicalPickerContext(session) {
+  const { sprintContext, notionTasks } = session;
+  const { sprint, epics = [] } = sprintContext;
+
+  // Build a lookup of all active tasks by ID
+  const activeTasksById = {};
+  for (const t of notionTasks) {
+    if (!isCompletedStatus(t.status)) {
+      activeTasksById[t.id] = t;
+    }
+  }
+
+  // Status sort order: 할 일 first, 진행 중 second, then others
+  const statusOrder = ['할 일', '진행 중'];
+  function sortTasks(tasks) {
+    return [...tasks].sort((a, b) => {
+      const aIdx = statusOrder.indexOf(a.status);
+      const bIdx = statusOrder.indexOf(b.status);
+      const aOrder = aIdx >= 0 ? aIdx : statusOrder.length;
+      const bOrder = bIdx >= 0 ? bIdx : statusOrder.length;
+      return aOrder - bOrder;
+    });
+  }
+
+  // Track which task IDs are claimed by an epic
+  const claimedTaskIds = new Set();
+
+  // Build epic groups — only include epics that have active tasks
+  const epicGroups = [];
+  for (const epic of epics) {
+    if (isCompletedStatus(epic.status)) continue;
+
+    const epicTasks = [];
+    for (const taskId of (epic.taskIds || [])) {
+      if (activeTasksById[taskId]) {
+        epicTasks.push(activeTasksById[taskId]);
+        claimedTaskIds.add(taskId);
+      }
+    }
+    // Also check tasks array populated by session-start (may overlap with taskIds)
+    for (const t of (epic.tasks || [])) {
+      if (activeTasksById[t.id] && !claimedTaskIds.has(t.id)) {
+        epicTasks.push(activeTasksById[t.id]);
+        claimedTaskIds.add(t.id);
+      }
+    }
+
+    if (epicTasks.length > 0) {
+      epicGroups.push({
+        id: epic.id,
+        title: epic.title,
+        uniqueId: epic.uniqueId || null,
+        tasks: sortTasks(epicTasks),
+      });
+    }
+  }
+
+  // Tasks not belonging to any epic
+  const unassignedTasks = sortTasks(
+    Object.values(activeTasksById).filter((t) => !claimedTaskIds.has(t.id)),
+  );
+
+  // Build display lines for the context block
+  const lines = [];
+
+  if (sprint) {
+    const sprintLabel = sprint.name || 'Current Sprint';
+    const dateRange = sprint.dateRange ? ` (${sprint.dateRange.start} - ${sprint.dateRange.end})` : '';
+    lines.push(`Sprint: "${sprintLabel}"${dateRange}`);
+    lines.push('');
+  }
+
+  // Collect all active tasks across groups for the AskUserQuestion options
+  const allActiveTasks = [];
+
+  for (const group of epicGroups) {
+    const epicPrefix = group.uniqueId ? `[${group.uniqueId}] ` : '';
+    lines.push(`Epic: ${epicPrefix}${group.title} (${group.tasks.length} task${group.tasks.length !== 1 ? 's' : ''})`);
+    for (const t of group.tasks) {
+      const taskPrefix = t.uniqueId ? `[${t.uniqueId}] ` : '';
+      lines.push(`  - ${taskPrefix}${t.title} (${t.status})`);
+      allActiveTasks.push({ ...t, epicId: group.id, epicUniqueId: group.uniqueId });
+    }
+    lines.push('');
+  }
+
+  if (unassignedTasks.length > 0) {
+    lines.push(`Unassigned (${unassignedTasks.length} task${unassignedTasks.length !== 1 ? 's' : ''})`);
+    for (const t of unassignedTasks) {
+      const taskPrefix = t.uniqueId ? `[${t.uniqueId}] ` : '';
+      lines.push(`  - ${taskPrefix}${t.title} (${t.status})`);
+      allActiveTasks.push({ ...t, epicId: null, epicUniqueId: null });
+    }
+    lines.push('');
+  }
+
+  if (allActiveTasks.length === 0) {
+    return 'Your Notion tasks are all completed! Great job — no pending tasks to pick from.';
+  }
+
+  const hasUniqueIds = allActiveTasks.some((t) => t.uniqueId);
+
+  // Serialize all tasks for Claude to pick top 3 for AskUserQuestion options (max 4 total with "Other")
+  const tasksJson = JSON.stringify(allActiveTasks, null, 2);
+
+  const instructions = [
+    'IMPORTANT: Present an interactive task picker to the user using AskUserQuestion.',
+    '',
+    lines.join('\n'),
+    `All active tasks (${allActiveTasks.length}):`,
+    tasksJson,
+    '',
+    'INSTRUCTIONS:',
+    '1. Use AskUserQuestion to present the active tasks as selectable options.',
+    '   - question: "Which task would you like to work on?"',
+    '   - header: "Notion Task"',
+    '   - Each option: label = task title (with unique ID prefix if available), description = "<epic title> · <status>"',
+    '   - Use the top 3 most relevant tasks as options (prioritize "할 일" then "진행 중").',
+    '   - The 4th option should be "Other" for anything not listed.',
+    '2. When the user picks a task:',
+    '   a. If the task status is NOT already "진행 중", use the mcp__notion__notion_update_page or mcp__plugin_codepresso_notion__notion_update_page MCP tool to update the page status property to "진행 중".',
+    '      Use: { page_id: "<task-id>", properties: { "상태": { "status": { "name": "진행 중" } } } }',
+    '   b. IMPORTANT: Save the selected task by writing a JSON file:',
+    `      Run a small Node.js script to merge the selection into the existing file (preserving other branches):`,
+    `      node -e "const fs=require('fs'); const f=${JSON.stringify(SELECTED_TASK_FILE)}; let d={}; try{d=JSON.parse(fs.readFileSync(f,'utf-8'))}catch{} if(d.id)d={}; d['<CURRENT-BRANCH>']={id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>',epicId:'<epic-id-or-null>',epicUniqueId:'<epic-unique-id-or-null>'}; fs.writeFileSync(f,JSON.stringify(d,null,2))"`,
+    `      Replace <CURRENT-BRANCH> with the actual current git branch name.`,
+    `      Replace <epic-id-or-null> and <epic-unique-id-or-null> with the epicId and epicUniqueId from the task data above (use null if not present).`,
     '   c. Ask the user if they want to create a feature branch for this task.',
     '   d. If yes, suggest a branch name like "feature/<slugified-task-title>" and create it with `git checkout -b <branch-name>`.',
     '3. If user selects "Other" or types a custom response, just acknowledge and proceed normally without updating Notion.',
@@ -192,15 +344,28 @@ function handlePrCreate(command, session) {
   const titleMatch = command.match(/--title\s+["']([^"']*?)["']/);
   const currentTitle = titleMatch ? titleMatch[1] : '';
 
-  // Check if the title already contains the unique ID
+  // Build the ID prefix based on prTitleFormat config
+  const format = session?.prTitleFormat || 'task';
+  let epicPrefix = '';
+  if (format !== 'task' && selectedTask.epicUniqueId) {
+    epicPrefix = `[${selectedTask.epicUniqueId}]`;
+  }
+  const taskPrefix = format !== 'epic' ? `[${selectedTask.uniqueId}]` : '';
+  const fullPrefix = (epicPrefix + taskPrefix) || `[${selectedTask.uniqueId}]`;
+
+  // Check if the title already contains the task unique ID (sufficient for Notion linking)
   if (currentTitle && currentTitle.includes(selectedTask.uniqueId)) {
     return false; // Already formatted correctly — let it through
   }
 
-  // Block and suggest correct format
+  // Block and suggest correct format with epic prefix
   const suggestedTitle = currentTitle
-    ? `${selectedTask.uniqueId} ${currentTitle}`
-    : `${selectedTask.uniqueId} ${selectedTask.title}`;
+    ? `${fullPrefix} ${currentTitle}`
+    : `${fullPrefix} ${selectedTask.title}`;
+
+  const epicInfo = selectedTask.epicUniqueId
+    ? `\nParent epic: ${selectedTask.epicUniqueId}`
+    : '';
 
   process.stdout.write(JSON.stringify({
     continue: false,
@@ -208,7 +373,7 @@ function handlePrCreate(command, session) {
       hookEventName: 'PreToolUse',
       additionalContext: [
         `[Codepresso] PR title must include Notion task ID for auto-linking.`,
-        `Selected task: ${selectedTask.uniqueId} — ${selectedTask.title}`,
+        `Selected task: ${selectedTask.uniqueId} — ${selectedTask.title}${epicInfo}`,
         ``,
         `Please re-run with the Notion ID prefixed in the title:`,
         `  --title "${suggestedTitle}"`,
@@ -236,7 +401,12 @@ try {
       process.stdout.write(JSON.stringify({ continue: true }));
     }
   }
-  // Structured tasks available — build picker context
+  // Sprint context available — build hierarchical epic-grouped picker
+  else if (session.sprintContext && session.notionTasks && session.notionTasks.length > 0) {
+    const context = buildHierarchicalPickerContext(session);
+    emitAndMark(session, context);
+  }
+  // Structured tasks available — build flat picker context (fallback)
   else if (session.notionTasks && session.notionTasks.length > 0) {
     const context = buildPickerContext(session.notionContext, session.notionTasks);
     emitAndMark(session, context);

@@ -10,6 +10,7 @@ import { loadConfig, isSetupComplete } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
+import { fetchSprintWithEpics } from './lib/sprint-context.mjs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -88,18 +89,59 @@ async function main() {
       }
     }
 
-    // Fetch Notion tasks (non-blocking, timeout-protected) — always, regardless of branch
+    // Fetch Notion tasks + sprint context in parallel (non-blocking, timeout-protected)
     let notionContext = null;
     let notionTasks = null;
+    let sprintContext = null;
+
+    const sprintEnabled = config.notion?.sprintWorkflow?.enabled
+      && config.notion?.databases?.sprint;
+
     try {
-      const result = await fetchNotionTasksStructured();
-      if (result) {
-        notionContext = result.formatted;
-        notionTasks = result.tasks;
-        contextParts.push(result.formatted);
+      const fetches = [fetchNotionTasksStructured()];
+      if (sprintEnabled) {
+        fetches.push(fetchSprintWithEpics(null, 4000));
+      }
+
+      const results = await Promise.allSettled(fetches);
+
+      // Task fetch result
+      const taskResult = results[0];
+      if (taskResult.status === 'fulfilled' && taskResult.value) {
+        notionContext = taskResult.value.formatted;
+        notionTasks = taskResult.value.tasks;
+        contextParts.push(taskResult.value.formatted);
+      }
+
+      // Sprint fetch result (only if enabled)
+      if (sprintEnabled && results[1]?.status === 'fulfilled' && results[1].value) {
+        sprintContext = results[1].value;
+
+        // Cross-reference in-memory: enrich epics with task details from flat list
+        if (notionTasks && sprintContext.epics) {
+          const taskMap = new Map();
+          for (const task of notionTasks) {
+            taskMap.set(task.id, task);
+          }
+          for (const epic of sprintContext.epics) {
+            epic.tasks = (epic.taskIds || [])
+              .map(id => taskMap.get(id))
+              .filter(Boolean);
+          }
+        }
+
+        // Add sprint info to context
+        const sprint = sprintContext.sprint;
+        if (sprint) {
+          const dateStr = sprint.dateRange
+            ? ` (${sprint.dateRange.start} - ${sprint.dateRange.end})`
+            : '';
+          const epicCount = sprintContext.epics?.length || 0;
+          contextParts.push(`[Codepresso] Sprint: "${sprint.name}"${dateStr} | ${epicCount} epics`);
+        }
       }
     } catch {
-      // Notion fetch failed — skip silently
+      // Notion/Sprint fetch failed — skip silently
     }
 
     const sessionState = {
@@ -115,6 +157,9 @@ async function main() {
       notionContext,
       notionTasks,
       notionContextShown: false,
+      sprintContext,
+      sprintDatabases: config.notion?.databases || null,
+      prTitleFormat: config.notion?.sprintWorkflow?.prTitleFormat || 'task',
     };
 
     ensureStateDir();

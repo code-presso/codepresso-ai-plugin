@@ -10,10 +10,21 @@ const DEFAULT_CONFIG = {
   notion: {
     apiKey: null,
     defaultDatabaseId: null,
+    databases: {                  // Per-type database IDs. notion.databases.task takes precedence over defaultDatabaseId when present.
+      sprint: null,
+      epic: null,
+      task: null,
+    },
     userId: null,               // Notion user ID (for filtering tasks by assignee)
     displayName: null,          // Display name (for auto-assigning created tasks)
     assigneeProperty: 'Assignee', // Name of the assignee property in the Notion DB
     syncWindowDays: 14,          // Default query window for Notion sync (0 = no limit)
+    sprintWorkflow: {
+      enabled: false,
+      autoTransition: true,
+      epicAutoComplete: true,
+      prTitleFormat: 'task',    // "task" | "epic+task" | "epic"
+    },
   },
   prLogging: {
     enabled: true,
@@ -78,8 +89,10 @@ function readJson(filePath) {
 }
 
 /**
- * Shallow-merge per-section: project values override global values within
- * each top-level key, but do not replace the entire section.
+ * Two-level deep merge per-section: project values override global values within
+ * each top-level key, but do not replace the entire section. For nested objects
+ * within a section (e.g. notion.databases, notion.sprintWorkflow), a second level
+ * of merging is applied so partial overrides preserve sibling defaults.
  */
 function mergeSections(base, override) {
   const result = { ...base };
@@ -92,7 +105,22 @@ function mergeSections(base, override) {
       override[key] !== null &&
       !Array.isArray(override[key])
     ) {
-      result[key] = { ...base[key], ...override[key] };
+      // Shallow merge at section level
+      const merged = { ...base[key], ...override[key] };
+      // Deep merge for nested objects within section (databases, sprintWorkflow, etc.)
+      for (const subKey of Object.keys(override[key])) {
+        if (
+          typeof base[key][subKey] === 'object' &&
+          base[key][subKey] !== null &&
+          !Array.isArray(base[key][subKey]) &&
+          typeof override[key][subKey] === 'object' &&
+          override[key][subKey] !== null &&
+          !Array.isArray(override[key][subKey])
+        ) {
+          merged[subKey] = { ...base[key][subKey], ...override[key][subKey] };
+        }
+      }
+      result[key] = merged;
     } else {
       result[key] = override[key];
     }
@@ -224,6 +252,34 @@ export function validateConfig(config) {
     }
     if (typeof config.analytics.retentionDays === 'number' && config.analytics.retentionDays <= 0) {
       warnings.push(`analytics.retentionDays must be > 0, got ${config.analytics.retentionDays}`);
+    }
+  }
+
+  // Sprint workflow validation
+  if (config.notion) {
+    const sw = config.notion.sprintWorkflow;
+    if (sw) {
+      if (typeof sw.enabled !== 'undefined' && typeof sw.enabled !== 'boolean') {
+        warnings.push(`notion.sprintWorkflow.enabled should be boolean, got ${typeof sw.enabled}`);
+      }
+      if (typeof sw.autoTransition !== 'undefined' && typeof sw.autoTransition !== 'boolean') {
+        warnings.push(`notion.sprintWorkflow.autoTransition should be boolean, got ${typeof sw.autoTransition}`);
+      }
+      if (typeof sw.epicAutoComplete !== 'undefined' && typeof sw.epicAutoComplete !== 'boolean') {
+        warnings.push(`notion.sprintWorkflow.epicAutoComplete should be boolean, got ${typeof sw.epicAutoComplete}`);
+      }
+      const validFormats = ['task', 'epic+task', 'epic'];
+      if (sw.prTitleFormat && !validFormats.includes(sw.prTitleFormat)) {
+        warnings.push(`notion.sprintWorkflow.prTitleFormat "${sw.prTitleFormat}" is not valid. Use: ${validFormats.join(', ')}`);
+      }
+    }
+    const dbs = config.notion.databases;
+    if (dbs) {
+      for (const dbKey of ['sprint', 'epic', 'task']) {
+        if (dbs[dbKey] !== null && dbs[dbKey] !== undefined && typeof dbs[dbKey] !== 'string') {
+          warnings.push(`notion.databases.${dbKey} should be a string, got ${typeof dbs[dbKey]}`);
+        }
+      }
     }
   }
 

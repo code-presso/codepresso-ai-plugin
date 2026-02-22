@@ -26,23 +26,28 @@ codepresso-plugin/
 │   │   ├── rate-limiter.mjs       # PR comment rate limiting (hourly + session)
 │   │   ├── logger.mjs             # Debug logger (writes to ~/.codepresso/logs/)
 │   │   ├── analytics.mjs          # Analytics persistence (sessions.jsonl)
-│   │   └── notion-tasks.mjs       # Notion task fetcher with unique ID extraction
+│   │   ├── notion-tasks.mjs       # Notion task fetcher with unique ID extraction
+│   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher with PROPERTY_TYPES
+│   │   └── status-transitions.mjs # Task/Epic status transitions with Notion API
 │   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, cache state
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit hook: batch prompts silently
 │   ├── pre-tool-notion-inject.mjs # PreToolUse hook: task picker + PR title enforcement
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash hook: detect git commit/push
 │   ├── session-end.mjs            # Stop hook: force-flush remaining batch
-│   └── score-and-post.mjs         # Detached process: score batch + post PR comment
+│   ├── score-and-post.mjs         # Detached process: score batch + post PR comment
+│   └── handle-merge-transition.mjs # Detached: PR merge → task complete → epic cascade
 ├── skills/
 │   ├── setup/SKILL.md             # Interactive setup wizard
 │   ├── log/SKILL.md               # Manual PR summary posting
 │   ├── status/SKILL.md            # Plugin status and diagnostics
 │   ├── notion-sync/SKILL.md       # Notion task query/update
 │   ├── deploy/SKILL.md            # Deploy trigger (optional)
-│   └── dashboard/SKILL.md         # Team analytics dashboard
+│   ├── dashboard/SKILL.md         # Team analytics dashboard
+│   ├── sprint-dashboard/SKILL.md  # Sprint progress dashboard
+│   └── sprint-retro/SKILL.md      # Sprint retrospective report
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
-│   └── notion-server.mjs          # MCP server exposing 5 Notion API tools
+│   └── notion-server.mjs          # MCP server exposing 9 Notion API tools (5 base + 4 sprint)
 ├── templates/workflows/           # GitHub Actions templates (ECS, CodePipeline)
 ├── .claude-plugin/plugin.json     # Plugin manifest
 ├── .mcp.json                      # MCP server declaration
@@ -69,6 +74,12 @@ Branch Switch → user-prompt-logger detects → reset notionContextShown → Pr
 PR Create   → PreToolUse hook → detect `gh pr create` → read task for current branch → enforce "[TSK-XXXX] title"
 Git Commit  → PostToolUse:Bash hook → verify branch matches session → detached `gh pr comment`
 Session End → Stop hook → groupByPr() → force-flush per PR group (discard pending/unresolvable)
+
+Sprint Start → SessionStart hook → parallel fetch [tasks, sprint+epics] → in-memory cross-reference → cache in session
+First Tool  → PreToolUse hook → hierarchical picker (grouped by epic) → user selects task → save with epicId/epicUniqueId
+PR Create   → PreToolUse hook → enforce "[GP-XXXX][TSK-XXXX] title" format (epic-aware)
+PR Merge    → PostToolUse:Bash hook → detect `gh pr merge` → spawn handle-merge-transition.mjs
+              → mark task "완료" (status type) → check epic tasks → auto-mark epic "배포 완료" (select type)
 ```
 
 ---
@@ -121,6 +132,9 @@ A single Claude session can span multiple PRs when the user switches branches. T
 
 **Branch-aware git comments** (`post-tool-git-watcher.mjs`): Before posting, checks `getCurrentBranch()` against `session.branch`. Skips the comment if branches differ (the session's `prNumber` belongs to a different branch).
 
+### 9. Sprint Workflow — Forward-Only Relations
+The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개발팀 에픽`, Epic→Task via `관계형 그룹`). Reverse relation property names are fragile and user-editable. The `PROPERTY_TYPES` constant in `sprint-context.mjs` centralizes all property names and types for Sprint, Epic, and Task databases. **Critical:** Sprint and Epic DBs use `select` type for 상태, while Task DB uses `status` type — these require different Notion API shapes for updates.
+
 ---
 
 ## Hook Contracts
@@ -154,7 +168,7 @@ A single Claude session can span multiple PRs when the user switches branches. T
 - **Matcher:** `Bash` only
 - **Input:** `toolInput.command` and `toolOutput` from stdin
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Checks `getCurrentBranch()` against `session.branch` — skips comment if branches differ. Spawns detached `gh pr comment` for git operations when branch matches.
+- **Side effects:** Checks `getCurrentBranch()` against `session.branch` — skips comment if branches differ. Spawns detached `gh pr comment` for git operations when branch matches. Also detects `gh pr merge` commands and spawns `handle-merge-transition.mjs` as a detached process for Notion status transitions.
 - **Failure mode:** Silent
 
 ### Stop (`scripts/session-end.mjs`)
@@ -172,13 +186,14 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `codepresso-session.json` | JSON | Cached gitRoot, activeSubmodule, branch, PR number, session ID, Notion tasks (with uniqueId), `labelsApplied` (per-PR map `{ [prNumber]: true }`), `closedPrs` (array of merged/closed PR numbers) |
-| `codepresso-selected-task.json` | JSON | Branch-keyed Notion task map (`{ "branch-name": { id, title, uniqueId } }`). Legacy singleton format auto-migrated on read. |
+| `codepresso-session.json` | JSON | Cached gitRoot, activeSubmodule, branch, PR number, session ID, Notion tasks (with uniqueId), `labelsApplied` (per-PR map `{ [prNumber]: true }`), `closedPrs` (array of merged/closed PR numbers), `sprintContext` (sprint/epic hierarchy), `sprintDatabases` (resolved DB IDs) |
+| `codepresso-selected-task.json` | JSON | Branch-keyed Notion task map (`{ "branch-name": { id, title, uniqueId, epicId, epicUniqueId } }`). Legacy singleton format auto-migrated on read. |
 | `codepresso-batch.jsonl` | JSONL | Pending prompt queue (redacted). Each entry: `{ timestamp, prompt, sessionId, branch, prNumber }`. Legacy entries without branch/prNumber are supported via fallback. |
 | `codepresso-batch-timer.json` | JSON | Flush timer (`{ startedAt: epoch_ms }`) |
 | `codepresso-flush-*.json` | JSON | Temporary scoring payloads (auto-cleaned) |
 | `codepresso-flush.lock` | Text | Atomic flush lock (PID, stale after 30s) |
 | `codepresso-rate-limit.json` | JSON | Rate limit state per PR (hourly + session counts) |
+| `codepresso-merge-{N}.json` | JSON | Temporary payload for detached merge handler (auto-cleaned) |
 
 **Analytics data** (separate location: `~/.codepresso/analytics/`):
 
@@ -199,7 +214,18 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
     "userId": null,                                // Notion user ID (for filtering tasks by assignee)
     "displayName": null,                           // Display name (for auto-assigning created tasks)
     "assigneeProperty": "Assignee",                 // Name of the assignee property in the Notion DB
-    "syncWindowDays": 14                             // Query window in days (0 = no limit)
+    "syncWindowDays": 14,                            // Query window in days (0 = no limit)
+    "databases": {
+      "sprint": null,                              // Sprint database ID
+      "epic": null,                                // Epic database ID
+      "task": null                                 // Task database ID
+    },
+    "sprintWorkflow": {
+      "enabled": false,                            // Enable sprint automation (requires databases config)
+      "autoTransition": true,                      // Auto-transition task to "진행 중" on selection
+      "epicAutoComplete": true,                    // Auto-complete epic when all tasks done
+      "prTitleFormat": "task"                      // PR title format: "task" → [TSK-XXX], "epic+task" → [GP-XXX][TSK-XXX]
+    }
   },
   "prLogging": {
     "enabled": true,                               // Master switch for PR logging
