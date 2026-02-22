@@ -54,6 +54,54 @@ async function main() {
 
         const session = readSession();
 
+        // Branch-change detection: check if user switched branches mid-session
+        if (session) {
+          const currentBranch = getCurrentBranch(session.gitRoot);
+
+          if (currentBranch && session.branch && currentBranch !== session.branch) {
+            // Branch changed! Update session state
+            session.branch = currentBranch;
+            session.prNumber = null;
+            session.notionContextShown = false; // Re-trigger Notion task picker
+            writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+            log.debug(`Branch switch detected: now on ${currentBranch}`);
+
+            // If switched to main branch, skip batching entirely
+            if (isMainBranch(currentBranch)) {
+              process.stdout.write(JSON.stringify({ continue: true }));
+              return;
+            }
+
+            // Spawn detached PR resolver for the new branch
+            const cwd = session.gitRoot || process.cwd();
+            const script = `
+              const fs = require('fs');
+              const { execSync } = require('child_process');
+              try {
+                const session = JSON.parse(fs.readFileSync(${JSON.stringify(SESSION_FILE)}, 'utf-8'));
+                const branch = ${JSON.stringify(currentBranch)};
+                const output = execSync(
+                  'gh pr list --head "' + branch + '" --json number,url --limit 1',
+                  { cwd: ${JSON.stringify(cwd)}, encoding: 'utf-8', timeout: 10000, stdio: ['pipe','pipe','pipe'] }
+                );
+                const prs = JSON.parse(output);
+                if (prs && prs.length > 0) {
+                  session.branch = branch;
+                  session.prNumber = prs[0].number;
+                  session.prUrl = prs[0].url;
+                  fs.writeFileSync(${JSON.stringify(SESSION_FILE)}, JSON.stringify(session, null, 2), 'utf-8');
+                }
+              } catch {}
+            `;
+            const child = spawn(process.execPath, ['-e', script], {
+              detached: true,
+              stdio: 'ignore',
+              cwd,
+            });
+            child.unref();
+          }
+        }
+
         // Lazy PR detection: if no PR cached, try to find one for the current branch
         if (session && !session.prNumber) {
           const currentBranch = getCurrentBranch();
@@ -89,33 +137,46 @@ async function main() {
           }
         }
 
-        if (session && session.prNumber) {
+        // Skip batching on main branches (no PR to log to)
+        if (session) {
+          const branch = session.branch || getCurrentBranch(session.gitRoot);
+          if (branch && isMainBranch(branch)) {
+            process.stdout.write(JSON.stringify({ continue: true }));
+            return;
+          }
+        }
+
+        if (session) {
           // Truncate prompt if configured
           const maxLen = config.prLogging.truncatePromptLength || 500;
           const truncated = prompt.length > maxLen
             ? prompt.slice(0, maxLen) + '...'
             : prompt;
 
-          // Append to batch (fire-and-forget, with redaction if enabled)
+          // Append enriched entry with branch/prNumber for multi-PR grouping
           const redactionEnabled = config.redaction?.enabled !== false;
           const extraRedactPatterns = redactionEnabled ? (config.redaction?.extraPatterns || []) : [];
           appendToBatch({
             timestamp: new Date().toISOString(),
             prompt: truncated,
             sessionId: session.sessionId,
+            branch: session.branch || null,
+            prNumber: session.prNumber || null,
           }, redactionEnabled ? extraRedactPatterns : null);
 
-          log.debug(`Prompt batched (session: ${session.sessionId?.slice(0,8)})`);
+          log.debug(`Prompt batched (session: ${session.sessionId?.slice(0,8)}, branch: ${session.branch})`);
 
           // Check if batch should flush (non-blocking)
-          flushIfReady(
-            { prNumber: session.prNumber, branch: session.branch, sessionId: session.sessionId, gitRoot: session.gitRoot },
-            {
-              batchIntervalSeconds: config.prLogging.batchIntervalSeconds,
-              maxBatchSize: config.prLogging.maxBatchSize,
-              rateLimit: config.rateLimit,
-            }
-          );
+          if (session.prNumber) {
+            flushIfReady(
+              { prNumber: session.prNumber, branch: session.branch, sessionId: session.sessionId, gitRoot: session.gitRoot },
+              {
+                batchIntervalSeconds: config.prLogging.batchIntervalSeconds,
+                maxBatchSize: config.prLogging.maxBatchSize,
+                rateLimit: config.rateLimit,
+              }
+            );
+          }
         }
       }
     }

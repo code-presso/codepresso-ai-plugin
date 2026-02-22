@@ -71,6 +71,61 @@ function clearBatch() {
 }
 
 /**
+ * Overwrite the batch file with the given entries (used for pending entries after partial flush).
+ */
+function writeBatch(entries) {
+  ensureStateDir();
+  const content = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+  writeFileSync(BATCH_FILE, content, 'utf-8');
+}
+
+/**
+ * Group batch entries by PR number for multi-PR flush.
+ * - Entries with explicit prNumber are grouped directly
+ * - Entries with matching branch but null prNumber get backfilled from fallbackSession
+ * - Legacy entries (no branch/prNumber fields) fall back to fallbackSession.prNumber
+ * - Entries for closed PRs are discarded
+ * - Unresolvable entries go to pending
+ *
+ * @param {Array} entries
+ * @param {{ branch?: string, prNumber?: number|null, closedPrs?: number[] }} fallbackSession
+ * @returns {{ groups: Map<number, Array>, pending: Array }}
+ */
+export function groupByPr(entries, fallbackSession = {}) {
+  const groups = new Map();
+  const pending = [];
+  const closedPrs = fallbackSession.closedPrs || [];
+
+  for (const entry of entries) {
+    let prNumber = entry.prNumber ?? null;
+
+    // Backfill: entries whose branch matches session but have no prNumber
+    if (!prNumber && entry.branch && entry.branch === fallbackSession.branch && fallbackSession.prNumber) {
+      prNumber = fallbackSession.prNumber;
+    }
+
+    // Legacy entries (no branch/prNumber fields at all) → fallback to session
+    if (!prNumber && !entry.branch) {
+      prNumber = fallbackSession.prNumber ?? null;
+    }
+
+    // Skip entries for closed PRs
+    if (prNumber && closedPrs.includes(prNumber)) {
+      continue;
+    }
+
+    if (prNumber) {
+      if (!groups.has(prNumber)) groups.set(prNumber, []);
+      groups.get(prNumber).push(entry);
+    } else {
+      pending.push(entry);
+    }
+  }
+
+  return { groups, pending };
+}
+
+/**
  * Read/write the timer state to track when the batch window started.
  */
 function getTimerState() {
@@ -209,17 +264,46 @@ function isPrOpen(prNumber, cwd = process.cwd()) {
 }
 
 /**
- * Clear cached prNumber in session file so subsequent prompts skip commenting.
+ * Add a PR number to the closedPrs tracking array in session state.
+ * @param {number} prNumber
  */
-function clearSessionPr() {
+function updateClosedPrs(prNumber) {
   const sessionFile = join(STATE_DIR, 'codepresso-session.json');
   try {
     const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
-    session.prNumber = null;
-    session.prClosed = true;
+    if (!session.closedPrs) session.closedPrs = [];
+    if (!session.closedPrs.includes(prNumber)) {
+      session.closedPrs.push(prNumber);
+    }
+    // If the closed PR matches the session's current PR, clear it
+    if (session.prNumber === prNumber) {
+      session.prNumber = null;
+      session.prClosed = true;
+    }
     writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
   } catch {
     // Session file missing — no-op
+  }
+}
+
+/**
+ * Clear cached prNumber in session file. If prNumber is given, only clear if it matches.
+ * @param {number} [prNumber]
+ */
+function clearSessionPr(prNumber) {
+  if (prNumber) {
+    updateClosedPrs(prNumber);
+  } else {
+    // Legacy behavior: clear whatever PR is in session
+    const sessionFile = join(STATE_DIR, 'codepresso-session.json');
+    try {
+      const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
+      session.prNumber = null;
+      session.prClosed = true;
+      writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
+    } catch {
+      // no-op
+    }
   }
 }
 
@@ -258,7 +342,7 @@ function scoreAndPost(entries, meta, prNumber) {
  * Check if the batch should be flushed based on interval and size.
  * If ready, flush and post the comment. Non-blocking.
  *
- * @param {{ prNumber: number, branch: string, sessionId?: string }} session
+ * @param {{ prNumber: number, branch: string, sessionId?: string, gitRoot?: string }} session
  * @param {{ batchIntervalSeconds?: number, maxBatchSize?: number }} config
  */
 export function flushIfReady(session, config = {}) {
@@ -271,86 +355,139 @@ export function flushIfReady(session, config = {}) {
   const timerState = getTimerState();
   const now = Date.now();
 
-  // Start timer on first entry
   if (!timerState) {
     setTimerState({ startedAt: now });
   }
 
   const startedAt = timerState ? timerState.startedAt : now;
   const elapsed = now - startedAt;
-
   const shouldFlush = entries.length >= maxSize || elapsed >= intervalMs;
 
-  if (shouldFlush) {
-    // Check if PR is still open before wasting a scoring call
-    if (!isPrOpen(session.prNumber, session.gitRoot)) {
-      clearBatch();
-      clearTimerState();
-      clearSessionPr();
-      return; // PR merged/closed — discard batch, stop future commenting
-    }
+  if (!shouldFlush) return;
 
-    if (!acquireLock()) return; // Another flush in progress
-    try {
-      if (!checkRateLimit(session.prNumber, config.rateLimit)) {
-        return; // Rate limited — skip this flush, keep batch for later
+  // Read current session state for closedPrs
+  let currentSession;
+  try {
+    const sessionFile = join(STATE_DIR, 'codepresso-session.json');
+    currentSession = JSON.parse(readFileSync(sessionFile, 'utf-8'));
+  } catch {
+    currentSession = {};
+  }
+
+  const { groups, pending } = groupByPr(entries, {
+    branch: session.branch,
+    prNumber: session.prNumber,
+    closedPrs: currentSession.closedPrs || [],
+  });
+
+  if (groups.size === 0 && pending.length === 0) {
+    clearBatch();
+    clearTimerState();
+    return;
+  }
+
+  if (!acquireLock()) return;
+  try {
+    const rateLimitConfig = config.rateLimit || {};
+    const prLabelsConfig = loadConfig().prLabels || {};
+
+    for (const [prNumber, prEntries] of groups) {
+      if (!isPrOpen(prNumber, session.gitRoot)) {
+        updateClosedPrs(prNumber);
+        continue;
       }
-      scoreAndPost(entries, {
-        branch: session.branch,
+
+      if (!checkRateLimit(prNumber, rateLimitConfig)) {
+        continue;
+      }
+
+      scoreAndPost(prEntries, {
+        branch: prEntries[0].branch || session.branch,
         sessionId: session.sessionId,
         cwd: session.gitRoot,
-      }, session.prNumber);
-      clearBatch();
-      clearTimerState();
+      }, prNumber);
 
-      // Apply PR labels on first successful flush
-      const prLabelsConfig = loadConfig().prLabels || {};
       if (prLabelsConfig.enabled !== false) {
-        applyPrLabels(session.prNumber, prLabelsConfig.labels, session.gitRoot);
+        applyPrLabels(prNumber, prLabelsConfig.labels, session.gitRoot);
       }
-    } finally {
-      releaseLock();
     }
+
+    // Write back pending entries or clear batch
+    if (pending.length > 0) {
+      writeBatch(pending);
+    } else {
+      clearBatch();
+    }
+
+    // Only clear timer when all entries are flushed
+    if (pending.length === 0) {
+      clearTimerState();
+    }
+  } finally {
+    releaseLock();
   }
 }
 
 /**
  * Force-flush whatever is in the batch, regardless of timer/size.
- * Used by the manual `codepresso:log` skill.
+ * Used by the manual `codepresso:log` skill and Stop hook.
  *
- * @param {{ prNumber: number, branch: string, sessionId?: string }} session
+ * @param {{ prNumber: number, branch: string, sessionId?: string, gitRoot?: string }} session
  */
 export function forceFlush(session) {
   const entries = readBatch();
   if (entries.length === 0) return;
 
-  // Check if PR is still open before wasting a scoring call
-  if (!isPrOpen(session.prNumber, session.gitRoot)) {
-    clearBatch();
-    clearTimerState();
-    clearSessionPr();
-    return; // PR merged/closed — discard batch, stop future commenting
+  // Read current session state for closedPrs
+  let currentSession;
+  try {
+    const sessionFile = join(STATE_DIR, 'codepresso-session.json');
+    currentSession = JSON.parse(readFileSync(sessionFile, 'utf-8'));
+  } catch {
+    currentSession = {};
   }
 
-  if (!acquireLock()) return; // Another flush in progress
-  try {
-    const rateLimitConfig = loadConfig().rateLimit || {};
-    if (!checkRateLimit(session.prNumber, rateLimitConfig)) {
-      return; // Rate limited
-    }
-    scoreAndPost(entries, {
-      branch: session.branch,
-      sessionId: session.sessionId,
-      cwd: session.gitRoot,
-    }, session.prNumber);
+  const { groups } = groupByPr(entries, {
+    branch: session.branch,
+    prNumber: session.prNumber,
+    closedPrs: currentSession.closedPrs || [],
+  });
+
+  // At session end: discard pending entries (no PR to post to)
+  if (groups.size === 0) {
     clearBatch();
     clearTimerState();
+    return;
+  }
 
-    // Apply PR labels on first successful flush
+  if (!acquireLock()) return;
+  try {
+    const rateLimitConfig = loadConfig().rateLimit || {};
     const prLabelsConfig = loadConfig().prLabels || {};
-    if (prLabelsConfig.enabled !== false) {
-      applyPrLabels(session.prNumber, prLabelsConfig.labels, session.gitRoot);
+
+    for (const [prNumber, prEntries] of groups) {
+      if (!isPrOpen(prNumber, session.gitRoot)) {
+        updateClosedPrs(prNumber);
+        continue;
+      }
+
+      if (!checkRateLimit(prNumber, rateLimitConfig)) {
+        continue;
+      }
+
+      scoreAndPost(prEntries, {
+        branch: prEntries[0].branch || session.branch,
+        sessionId: session.sessionId,
+        cwd: session.gitRoot,
+      }, prNumber);
+
+      if (prLabelsConfig.enabled !== false) {
+        applyPrLabels(prNumber, prLabelsConfig.labels, session.gitRoot);
+      }
     }
+
+    clearBatch();
+    clearTimerState();
   } finally {
     releaseLock();
   }
@@ -378,7 +515,8 @@ export function postGitComment(prNumber, commit, cwd = process.cwd()) {
 
 /**
  * Apply labels to a PR (fire-and-forget).
- * Only applies once per session — checks session state for labelsApplied flag.
+ * Tracks per-PR to avoid re-applying: labelsApplied is { [prNumber]: true }.
+ * Backward compat: boolean `true` treated as "applied for original PR".
  * @param {number} prNumber
  * @param {string[]} labels
  * @param {string} [cwd]
@@ -386,21 +524,24 @@ export function postGitComment(prNumber, commit, cwd = process.cwd()) {
 export function applyPrLabels(prNumber, labels, cwd = process.cwd()) {
   if (!labels || labels.length === 0) return;
 
-  // Check session state to avoid re-applying
   const sessionFile = join(STATE_DIR, 'codepresso-session.json');
   try {
     const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
-    if (session.labelsApplied) return; // Already applied this session
 
-    // Mark as applied
-    session.labelsApplied = true;
+    // Backward compat: migrate boolean to empty map (treat true as "unknown PR already labeled")
+    if (typeof session.labelsApplied === 'boolean') {
+      session.labelsApplied = session.labelsApplied ? { _legacy: true } : {};
+    }
+    if (!session.labelsApplied) session.labelsApplied = {};
+
+    if (session.labelsApplied[prNumber]) return; // Already applied for this PR
+
+    session.labelsApplied[prNumber] = true;
     writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
   } catch {
-    // No session file — skip labeling
     return;
   }
 
-  // Apply each label via gh CLI (fire-and-forget)
   const args = ['pr', 'edit', String(prNumber), ...labels.flatMap((l) => ['--add-label', l])];
   const child = spawn('gh', args, {
     cwd,

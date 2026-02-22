@@ -110,7 +110,7 @@ async function main() {
       prUrl: pr?.url || null,
       sessionId,
       startedAt: new Date().toISOString(),
-      labelsApplied: false,
+      labelsApplied: {},
       headCommit: getHeadCommit(gitRoot),
       notionContext,
       notionTasks,
