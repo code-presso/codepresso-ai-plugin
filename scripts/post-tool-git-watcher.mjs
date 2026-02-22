@@ -11,8 +11,10 @@ import { createLogger } from './lib/logger.mjs';
 import { postGitComment } from './lib/pr-comment.mjs';
 import { recordGitCommit, recordGitPush } from './lib/analytics.mjs';
 import { getCurrentBranch } from './lib/git-utils.mjs';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 
 const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
 const log = createLogger('git-watcher');
@@ -54,6 +56,52 @@ function extractCommitInfo(command, output) {
  */
 function isGitPush(command) {
   return /\bgit\s+push\b/.test(command);
+}
+
+/**
+ * Check if command is a gh pr merge.
+ */
+function isGitMerge(command) {
+  return /\bgh\s+pr\s+merge\b/.test(command);
+}
+
+/**
+ * Extract PR number from gh pr merge command or fall back to session PR.
+ */
+function extractMergedPr(command, session) {
+  const match = command.match(/\bgh\s+pr\s+merge\s+(\d+)/);
+  if (match) return parseInt(match[1], 10);
+  return session?.prNumber || null;
+}
+
+/**
+ * Spawn a detached handle-merge-transition.mjs process.
+ * Writes a temp payload file then unref()s the child immediately.
+ */
+function spawnMergeHandler(prNumber, session) {
+  try {
+    const payloadFile = join(process.cwd(), '.omc', 'state', `codepresso-merge-${prNumber}.json`);
+    const payload = {
+      prNumber,
+      branch: session.branch,
+      sessionId: session.sessionId,
+      gitRoot: session.gitRoot,
+      sprintDatabases: session.sprintDatabases || null,
+    };
+    writeFileSync(payloadFile, JSON.stringify(payload, null, 2), 'utf-8');
+
+    const child = spawn('node', [
+      join(dirname(fileURLToPath(import.meta.url)), 'handle-merge-transition.mjs'),
+      payloadFile,
+    ], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: session.gitRoot || process.cwd(),
+    });
+    child.unref();
+  } catch {
+    log.debug('Failed to spawn merge handler');
+  }
 }
 
 async function main() {
@@ -139,6 +187,23 @@ async function main() {
         additionalContext: `[Codepresso] Push detected on branch \`${session.branch}\` (PR #${session.prNumber})`,
       }));
       return;
+    }
+
+    // Check for PR merge
+    if (isGitMerge(command)) {
+      const mergedPr = extractMergedPr(command, session);
+      if (mergedPr) {
+        log.info(`PR merge detected: #${mergedPr}`);
+
+        // Spawn detached handler for Notion status transitions
+        spawnMergeHandler(mergedPr, session);
+
+        process.stdout.write(JSON.stringify({
+          continue: true,
+          additionalContext: `[Codepresso] PR #${mergedPr} merge detected — task status transition triggered.`,
+        }));
+        return;
+      }
     }
   } catch {
     // Silent failure

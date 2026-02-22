@@ -77,6 +77,17 @@ describe('config.mjs', () => {
       assert.strictEqual(config.notion.assigneeProperty, 'Assignee');
     });
 
+    it('returns sprint workflow config defaults', () => {
+      const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
+
+      assert.strictEqual(config.notion.databases.sprint, null);
+      assert.strictEqual(config.notion.databases.epic, null);
+      assert.strictEqual(config.notion.databases.task, null);
+      assert.strictEqual(config.notion.sprintWorkflow.enabled, false);
+      assert.strictEqual(config.notion.sprintWorkflow.autoTransition, true);
+      assert.strictEqual(config.notion.sprintWorkflow.epicAutoComplete, true);
+    });
+
     it('merges nested sections correctly', () => {
       // Test with current directory (may or may not have config)
       const config = loadConfig();
