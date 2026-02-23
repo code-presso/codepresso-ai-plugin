@@ -37,18 +37,34 @@ set logging preferences, and write config files.
    - Ask the user to select themselves from the list (sets `notion.userId` and `notion.displayName`)
    - Ask for the name of the assignee property in their database (default: "Assignee")
 
-4. **PR logging preferences**
+4. **Sprint workflow configuration** (optional — requires Notion from step 3)
+   - Ask if user wants sprint workflow automation
+   - If yes, prompt for three database IDs with pre-filled defaults:
+     - **Sprint database ID** (default: `171c7154878d8013ab18f159929ba3b8`) — tracks sprints with 상태/Status select, 기간/Date, epic relation
+     - **Epic database ID** (default: `6e60ce8862704ef295e3a3f796ee6302`) — tracks epics with 상태/Status select, unique ID prefix "GP"
+     - **Task database ID** (default: same as `defaultDatabaseId` from step 3, i.e. `77bb2292512e472d8b049ec5b21b1554`) — tracks tasks
+   - Present defaults using AskUserQuestion: "Use default Codepresso database IDs?" with options "Yes, use defaults" / "No, enter custom IDs"
+   - If custom: prompt each ID individually. Tip: Database ID is in the Notion URL: `notion.so/workspace/<DATABASE_ID>?v=...`
+   - Test connection: use `mcp__plugin_codepresso_notion__notion_query_db` or `mcp__notion__notion_query_db` to query each database with `page_size: 1` to verify access
+   - Ask for sprint workflow preferences using AskUserQuestion:
+     - Auto-transition tasks to "진행 중" when selected? (default: true)
+     - Auto-complete epics when all tasks are done? (default: true)
+     - PR title format: "task" for `[TSK-XXX]` only, or "epic+task" for `[GP-XXX][TSK-XXX]`? (default: "task")
+   - Write `notion.databases` and `notion.sprintWorkflow` to config
+
+5. **PR logging preferences**
    - Ask for batch interval (default: 60s)
    - Ask for max batch size (default: 10)
    - Ask for prompt truncation length (default: 500 chars)
 
-5. **Write configuration**
+6. **Write configuration**
    - Write global config to `~/.codepresso/config.json`
    - Optionally write per-project `.codepresso.json`
    - Add `.codepresso.json` pattern to `.gitignore` if it contains secrets
 
-6. **Verify setup**
+7. **Verify setup**
    - Start a test by detecting current branch and PR
+   - If sprint workflow enabled, test sprint fetch: query sprint DB for current sprint
    - Confirm everything works
    - Print summary of configuration
 </Steps>
@@ -76,4 +92,6 @@ Action: Run wizard focused on per-project config
 - [ ] PR detection works for current branch
 - [ ] Notion configured (if requested)
 - [ ] Notion user identity set (userId and displayName in config)
+- [ ] Sprint databases configured (if requested): sprint, epic, task IDs
+- [ ] Sprint workflow preferences set (autoTransition, epicAutoComplete, prTitleFormat)
 </Final_Checklist>
