@@ -228,14 +228,10 @@ export async function buildSprintContext(notionConfig = null) {
     let completedTasks = 0;
     let blockedTasks = 0;
 
-    // For each epic, fetch full task details from Task DB
+    // For each epic, fetch full task details from Task DB.
+    // Always query by epic relation — don't rely on epic.taskIds which comes from
+    // the reverse relation (관계형 그룹) and may be empty/truncated in page API.
     for (const epic of data.epics) {
-      if (epic.taskIds.length === 0) {
-        epic.tasks = [];
-        epic.completionPct = 0;
-        continue;
-      }
-
       // Query Task DB filtered by epic relation
       const taskData = await notionFetch(
         `/databases/${config.databases.task}/query`,
