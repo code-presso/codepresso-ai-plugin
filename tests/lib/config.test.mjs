@@ -88,6 +88,16 @@ describe('config.mjs', () => {
       assert.strictEqual(config.notion.sprintWorkflow.epicAutoComplete, true);
     });
 
+    it('returns epicDocs config defaults', () => {
+      const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
+
+      assert.strictEqual(config.epicDocs.enabled, true);
+      assert.strictEqual(config.epicDocs.outputDir, 'docs/prd');
+      assert.strictEqual(config.epicDocs.includeTaskDetails, true);
+      assert(Array.isArray(config.epicDocs.customSections));
+      assert.strictEqual(config.epicDocs.customSections.length, 0);
+    });
+
     it('merges nested sections correctly', () => {
       // Test with current directory (may or may not have config)
       const config = loadConfig();
@@ -108,7 +118,7 @@ describe('config.mjs', () => {
     it('preserves all default sections', () => {
       const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
 
-      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'excludePatterns'];
+      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'epicDocs', 'excludePatterns'];
       for (const section of expectedSections) {
         assert(config.hasOwnProperty(section), `Missing section: ${section}`);
       }

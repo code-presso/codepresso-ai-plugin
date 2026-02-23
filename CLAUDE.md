@@ -44,7 +44,8 @@ codepresso-plugin/
 │   ├── deploy/SKILL.md            # Deploy trigger (optional)
 │   ├── dashboard/SKILL.md         # Team analytics dashboard
 │   ├── sprint-dashboard/SKILL.md  # Sprint progress dashboard
-│   └── sprint-retro/SKILL.md      # Sprint retrospective report
+│   ├── sprint-retro/SKILL.md      # Sprint retrospective report
+│   └── generate-epic/SKILL.md    # Epic PRD document generation
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing 9 Notion API tools (5 base + 4 sprint)
@@ -261,6 +262,12 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
   "prLabels": {
     "enabled": true,                               // Auto-label PRs on first flush
     "labels": ["ai-assisted"]                      // Labels to apply
+  },
+  "epicDocs": {
+    "enabled": true,                               // Enable epic PRD generation
+    "outputDir": "docs/prd",                       // Output directory relative to gitRoot
+    "includeTaskDetails": true,                    // Include task table with status/assignee
+    "customSections": []                           // Extra section headings to include
   },
   "excludePatterns": [                             // Regex patterns to skip logging
     "^/oh-my-claudecode:",

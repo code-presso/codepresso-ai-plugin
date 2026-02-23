@@ -52,6 +52,24 @@ set logging preferences, and write config files.
      - PR title format: "task" for `[TSK-XXX]` only, or "epic+task" for `[GP-XXX][TSK-XXX]`? (default: "task")
    - Write `notion.databases` and `notion.sprintWorkflow` to config
 
+4.5. **Epic PRD configuration** (optional — requires Notion from step 3)
+   - Ask: "Enable PRD document generation for epics?" using AskUserQuestion
+   - If yes:
+     - Ask output directory (default: `docs/prd`)
+     - Ask: include task details table in PRD? (default: true)
+     - Ask: any custom section headings? (comma-separated, optional — e.g., "Rollback Plan, Monitoring")
+   - Write `epicDocs` section to config:
+     ```json
+     {
+       "epicDocs": {
+         "enabled": true,
+         "outputDir": "docs/prd",
+         "includeTaskDetails": true,
+         "customSections": []
+       }
+     }
+     ```
+
 5. **PR logging preferences**
    - Ask for batch interval (default: 60s)
    - Ask for max batch size (default: 10)
@@ -110,4 +128,5 @@ Action: Run wizard focused on per-project config
 - [ ] Sprint databases configured (if requested): sprint, epic, task IDs
 - [ ] Sprint workflow preferences set (autoTransition, epicAutoComplete, prTitleFormat)
 - [ ] MCP tool permissions configured in `.claude/settings.local.json`
+- [ ] Epic PRD configuration set (if requested)
 </Final_Checklist>
