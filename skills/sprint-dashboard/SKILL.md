@@ -9,7 +9,8 @@ User says: "sprint dashboard", "show sprint", "sprint status", "sprint progress"
 ## Steps
 
 1. **Fetch sprint context** using the `notion_sprint_context` MCP tool:
-   - Call `mcp__notion__notion_sprint_context` (or `mcp__plugin_codepresso_notion__notion_sprint_context` if installed as plugin) with `{ "include_completed": false }`
+   - Call `mcp__notion__notion_sprint_context` (or `mcp__plugin_codepresso_notion__notion_sprint_context` if installed as plugin) with `{ "include_completed": false, "assignee_only": false }`
+   - **`assignee_only: false`** is required — the dashboard shows all team members' progress, not just the current user
    - This returns the full Sprint → Epic → Task hierarchy
    - **IMPORTANT:** Always use the MCP tool. NEVER use curl, Bash, or direct Notion API calls.
 
@@ -53,5 +54,5 @@ Progress: [████████░░░░░░░░] 52%
 ## Notes
 - All data comes from MCP tools — NEVER use curl, Bash, or direct Notion API calls
 - The dashboard is read-only — it doesn't modify any Notion data
-- Tasks are filtered by assignee if `notion.userId` is configured
+- The dashboard always shows ALL team members' tasks (`assignee_only: false`) for full sprint visibility
 - MCP tools are auto-allowed via `.claude/settings.local.json` — no permission prompts needed
