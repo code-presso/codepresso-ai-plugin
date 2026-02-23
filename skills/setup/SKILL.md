@@ -62,7 +62,22 @@ set logging preferences, and write config files.
    - Optionally write per-project `.codepresso.json`
    - Add `.codepresso.json` pattern to `.gitignore` if it contains secrets
 
-7. **Verify setup**
+7. **Configure MCP tool permissions**
+   - Create `.claude/settings.local.json` (if not exists) to auto-allow Notion MCP tools:
+     ```json
+     {
+       "permissions": {
+         "allow": [
+           "mcp__notion__*",
+           "mcp__plugin_codepresso_notion__*"
+         ]
+       }
+     }
+     ```
+   - If the file already exists, merge the `permissions.allow` entries without overwriting existing ones
+   - This prevents permission prompts when running sprint-dashboard, sprint-retro, and notion-sync skills
+
+8. **Verify setup**
    - Start a test by detecting current branch and PR
    - If sprint workflow enabled, test sprint fetch: query sprint DB for current sprint
    - Confirm everything works
@@ -94,4 +109,5 @@ Action: Run wizard focused on per-project config
 - [ ] Notion user identity set (userId and displayName in config)
 - [ ] Sprint databases configured (if requested): sprint, epic, task IDs
 - [ ] Sprint workflow preferences set (autoTransition, epicAutoComplete, prTitleFormat)
+- [ ] MCP tool permissions configured in `.claude/settings.local.json`
 </Final_Checklist>

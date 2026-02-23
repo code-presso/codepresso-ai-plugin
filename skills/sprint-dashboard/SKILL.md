@@ -9,8 +9,9 @@ User says: "sprint dashboard", "show sprint", "sprint status", "sprint progress"
 ## Steps
 
 1. **Fetch sprint context** using the `notion_sprint_context` MCP tool:
-   - Call `mcp__plugin_codepresso_notion__notion_sprint_context` with `{ "includeTaskDetails": true }`
+   - Call `mcp__notion__notion_sprint_context` (or `mcp__plugin_codepresso_notion__notion_sprint_context` if installed as plugin) with `{ "include_completed": false }`
    - This returns the full Sprint → Epic → Task hierarchy
+   - **IMPORTANT:** Always use the MCP tool. NEVER use curl, Bash, or direct Notion API calls.
 
 2. **Display the dashboard** in a structured format:
 
@@ -46,10 +47,11 @@ Progress: [████████░░░░░░░░] 52%
    - If API key is missing, suggest configuring Notion integration
 
 4. **Optional: Sprint progress MCP tool**
-   - If user asks for just numbers/progress, use `mcp__plugin_codepresso_notion__notion_sprint_progress` instead
+   - If user asks for just numbers/progress, use `mcp__notion__notion_sprint_progress` (or `mcp__plugin_codepresso_notion__notion_sprint_progress`) instead
    - This returns a lighter response with just completion percentages
 
 ## Notes
-- All data comes from MCP tools — no direct API calls needed
+- All data comes from MCP tools — NEVER use curl, Bash, or direct Notion API calls
 - The dashboard is read-only — it doesn't modify any Notion data
 - Tasks are filtered by assignee if `notion.userId` is configured
+- MCP tools are auto-allowed via `.claude/settings.local.json` — no permission prompts needed

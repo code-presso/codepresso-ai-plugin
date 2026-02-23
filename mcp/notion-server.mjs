@@ -369,17 +369,12 @@ async function handleSprintContext(args) {
     throw new Error('Could not fetch sprint context. Check that sprint database ID is correct.');
   }
 
-  // Filter completed if requested
+  // Filter completed tasks from the list but preserve original summary counts
+  // (summary should always reflect full sprint progress including completed work)
   if (!args.include_completed) {
     for (const epic of context.epics) {
       epic.tasks = (epic.tasks || []).filter(t => t.status !== '완료');
     }
-    // Recalculate summary
-    let totalTasks = 0;
-    for (const epic of context.epics) {
-      totalTasks += epic.tasks.length;
-    }
-    context.summary.totalTasks = totalTasks;
   }
 
   return context;
