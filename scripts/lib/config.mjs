@@ -73,6 +73,12 @@ const DEFAULT_CONFIG = {
       'lgtm', '좋아', 'ㄱㄱ', 'y', 'n', 'continue', 'proceed',
     ],
   },
+  epicDocs: {
+    enabled: true,
+    outputDir: 'docs/prd',
+    includeTaskDetails: true,
+    customSections: [],
+  },
   excludePatterns: ['^/oh-my-claudecode:', '^(cancelomc|stopomc)$'],
   debug: false,
 };
@@ -187,7 +193,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'epicDocs', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
@@ -289,6 +295,21 @@ export function validateConfig(config) {
     }
     if (config.prLabels.labels && !Array.isArray(config.prLabels.labels)) {
       warnings.push(`prLabels.labels should be an array, got ${typeof config.prLabels.labels}`);
+    }
+  }
+
+  if (config.epicDocs) {
+    if (typeof config.epicDocs.enabled !== 'undefined' && typeof config.epicDocs.enabled !== 'boolean') {
+      warnings.push(`epicDocs.enabled should be boolean, got ${typeof config.epicDocs.enabled}`);
+    }
+    if (typeof config.epicDocs.includeTaskDetails !== 'undefined' && typeof config.epicDocs.includeTaskDetails !== 'boolean') {
+      warnings.push(`epicDocs.includeTaskDetails should be boolean, got ${typeof config.epicDocs.includeTaskDetails}`);
+    }
+    if (typeof config.epicDocs.outputDir !== 'undefined' && typeof config.epicDocs.outputDir !== 'string') {
+      warnings.push(`epicDocs.outputDir should be a string, got ${typeof config.epicDocs.outputDir}`);
+    }
+    if (config.epicDocs.customSections && !Array.isArray(config.epicDocs.customSections)) {
+      warnings.push(`epicDocs.customSections should be an array, got ${typeof config.epicDocs.customSections}`);
     }
   }
 
