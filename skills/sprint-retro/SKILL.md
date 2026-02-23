@@ -9,8 +9,9 @@ User says: "sprint retro", "retrospective", "sprint review", "sprint report"
 ## Steps
 
 1. **Fetch retrospective data** using the `notion_sprint_retro` MCP tool:
-   - Call `mcp__plugin_codepresso_notion__notion_sprint_retro` with no arguments (uses current sprint)
+   - Call `mcp__notion__notion_sprint_retro` (or `mcp__plugin_codepresso_notion__notion_sprint_retro` if installed as plugin) with no arguments (uses current sprint)
    - This returns velocity metrics, contributor stats, and task categories
+   - **IMPORTANT:** Always use the MCP tool. NEVER use curl, Bash, or direct Notion API calls.
 
 2. **Display the retrospective report:**
 
@@ -65,4 +66,5 @@ Status: {epic.status}
 ## Notes
 - This skill generates a read-only report from Notion data
 - Best used at the end of a sprint for review meetings
-- All data comes from the `notion_sprint_retro` MCP tool
+- All data comes from MCP tools — NEVER use curl, Bash, or direct Notion API calls
+- MCP tools are auto-allowed via `.claude/settings.local.json` — no permission prompts needed
