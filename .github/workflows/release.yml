@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run tests
+        run: npm test
+
+      - name: Bump patch version
+        id: version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEW=$(node -p "const [ma,mi,pa]='$CURRENT'.split('.'); \`\${ma}.\${mi}.\${+pa+1}\`")
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          sed -i "s/\"version\": \"$CURRENT\"/\"version\": \"$NEW\"/" package.json
+          sed -i "s/\"version\": \"$CURRENT\"/\"version\": \"$NEW\"/" .claude-plugin/plugin.json
+          sed -i "s/\"version\": \"$CURRENT\"/\"version\": \"$NEW\"/" .claude-plugin/marketplace.json
+          sed -i "s/version: '$CURRENT'/version: '$NEW'/" mcp/notion-server.mjs
+
+      - name: Generate changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          echo "## What's Changed" > changelog.txt
+          echo "" >> changelog.txt
+          FEATS=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges --grep="^feat" || true)
+          if [ -n "$FEATS" ]; then
+            echo "### Features" >> changelog.txt
+            echo "$FEATS" >> changelog.txt
+            echo "" >> changelog.txt
+          fi
+          FIXES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges --grep="^fix" || true)
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> changelog.txt
+            echo "$FIXES" >> changelog.txt
+            echo "" >> changelog.txt
+          fi
+          OTHERS=$(git log ${PREV_TAG}..HEAD --pretty=format:"%s|%h" --no-merges | grep -v "^feat" | grep -v "^fix" | grep -v "^docs" | while IFS='|' read msg hash; do echo "- $msg ($hash)"; done || true)
+          if [ -n "$OTHERS" ]; then
+            echo "### Other Changes" >> changelog.txt
+            echo "$OTHERS" >> changelog.txt
+            echo "" >> changelog.txt
+          fi
+          NEW=${{ steps.version.outputs.new }}
+          echo "**Full Changelog**: https://github.com/code-presso/codepresso-ai-plugin/compare/${PREV_TAG}...v${NEW}" >> changelog.txt
+
+      - name: Create tarball
+        run: |
+          tar czf codepresso-plugin-v${{ steps.version.outputs.new }}.tar.gz \
+            package.json \
+            hooks/hooks.json \
+            scripts/ \
+            skills/ \
+            mcp/notion-server.mjs \
+            .mcp.json \
+            .claude-plugin/plugin.json \
+            .claude-plugin/marketplace.json \
+            templates/workflows/ \
+            README.md \
+            INSTALL.md \
+            CLAUDE.md
+
+      - name: Commit version bump and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json .claude-plugin/plugin.json .claude-plugin/marketplace.json mcp/notion-server.mjs
+          git commit -m "chore(release): v${{ steps.version.outputs.new }}"
+          git tag "v${{ steps.version.outputs.new }}"
+          git push origin master --tags
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.version.outputs.new }}" \
+            "codepresso-plugin-v${{ steps.version.outputs.new }}.tar.gz" \
+            --title "v${{ steps.version.outputs.new }}" \
+            --notes-file changelog.txt
