@@ -1,6 +1,6 @@
 {
   "name": "codepresso",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Team workflow - GitHub PR logging + Notion sync",
   "author": {
     "name": "Team"
