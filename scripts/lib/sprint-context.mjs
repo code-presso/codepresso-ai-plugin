@@ -285,6 +285,88 @@ export async function buildSprintContext(notionConfig = null) {
       blockedTasks += epic.tasks.filter(t => t.blockedBy.length > 0 && t.status !== '완료').length;
     }
 
+    // Fetch orphan tasks (no epic relation) scoped to this sprint's date range
+    const orphanFilter = {
+      property: PROPERTY_TYPES.task.epic.property,
+      relation: { is_empty: true },
+    };
+
+    let orphanQueryFilter = orphanFilter;
+    if (data.sprint.dateRange?.start) {
+      orphanQueryFilter = {
+        and: [
+          orphanFilter,
+          {
+            timestamp: 'last_edited_time',
+            last_edited_time: { on_or_after: data.sprint.dateRange.start },
+          },
+        ],
+      };
+    }
+
+    try {
+      const orphanData = await notionFetch(
+        `/databases/${config.databases.task}/query`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            filter: orphanQueryFilter,
+            page_size: 100,
+          }),
+        },
+        config.apiKey,
+      );
+
+      const orphanPages = orphanData?.results || [];
+      if (orphanPages.length > 0) {
+        let orphanTasks = orphanPages.map(page => {
+          const status = readTaskStatus(page);
+          const blockedByIds = readRelationIds(page, PROPERTY_TYPES.task.blockedBy.property);
+          const dateRange = readDateRange(page, PROPERTY_TYPES.task.dateRange.property);
+          const assignees = page.properties[PROPERTY_TYPES.task.assignee.property]?.people || [];
+          const category = page.properties[PROPERTY_TYPES.task.category.property]?.multi_select || [];
+
+          return {
+            id: page.id,
+            title: readTitle(page, PROPERTY_TYPES.task.title.property),
+            uniqueId: readUniqueId(page, PROPERTY_TYPES.task.uniqueId.property),
+            status,
+            assignees: assignees.map(a => ({ id: a.id, name: a.name || null })),
+            blockedBy: blockedByIds,
+            dateRange,
+            categories: category.map(c => c.name),
+            epicId: null,
+            epicUniqueId: null,
+          };
+        });
+
+        if (config.userId) {
+          orphanTasks = orphanTasks.filter(t =>
+            t.assignees.some(a => a.id === config.userId)
+          );
+        }
+
+        if (orphanTasks.length > 0) {
+          const done = orphanTasks.filter(t => t.status === '완료').length;
+          data.epics.push({
+            id: null,
+            title: '(에픽 없음)',
+            uniqueId: null,
+            status: null,
+            taskIds: orphanTasks.map(t => t.id),
+            tasks: orphanTasks,
+            completionPct: orphanTasks.length > 0 ? Math.round((done / orphanTasks.length) * 100) : 0,
+          });
+
+          totalTasks += orphanTasks.length;
+          completedTasks += done;
+          blockedTasks += orphanTasks.filter(t => t.blockedBy.length > 0 && t.status !== '완료').length;
+        }
+      }
+    } catch {
+      // Orphan task fetch failed — proceed with epic-linked tasks only
+    }
+
     return {
       sprint: data.sprint,
       epics: data.epics,
