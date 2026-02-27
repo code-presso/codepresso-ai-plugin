@@ -79,6 +79,12 @@ const DEFAULT_CONFIG = {
     includeTaskDetails: true,
     customSections: [],
   },
+  cloudDev: {
+    enabled: true,
+    region: 'ap-northeast-2',
+    tagKey: 'Email',
+    purposeTag: 'cloud-dev-env',
+  },
   excludePatterns: ['^/oh-my-claudecode:', '^(cancelomc|stopomc)$'],
   debug: false,
 };
@@ -193,7 +199,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'epicDocs', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'epicDocs', 'cloudDev', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);

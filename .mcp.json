@@ -3,6 +3,10 @@
     "notion": {
       "command": "node",
       "args": ["./mcp/notion-server.mjs"]
+    },
+    "cloud-dev": {
+      "command": "node",
+      "args": ["./mcp/cloud-dev-server.mjs"]
     }
   }
 }
