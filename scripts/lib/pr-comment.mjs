@@ -11,6 +11,42 @@ const BATCH_FILE = join(STATE_DIR, 'codepresso-batch.jsonl');
 const TIMER_FILE = join(STATE_DIR, 'codepresso-batch-timer.json');
 const LOCK_FILE = join(STATE_DIR, 'codepresso-flush.lock');
 const LOCK_STALE_MS = 30000; // 30 seconds
+const SIDECAR_PREFIX = 'codepresso-prepr-';
+
+// --- Sidecar helpers (pre-PR prompt persistence) ---
+
+function branchToSlug(branch) {
+  return branch.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().slice(0, 80);
+}
+
+export function getSidecarPath(branch) {
+  return join(STATE_DIR, `${SIDECAR_PREFIX}${branchToSlug(branch)}.jsonl`);
+}
+
+function readSidecar(branch) {
+  if (!branch) return [];
+  try {
+    const content = readFileSync(getSidecarPath(branch), 'utf-8').trim();
+    if (!content) return [];
+    return content.split('\n').map(line => {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeSidecar(entries, branch) {
+  if (!branch || entries.length === 0) return;
+  ensureStateDir();
+  const lines = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+  appendFileSync(getSidecarPath(branch), lines, 'utf-8');
+}
+
+function clearSidecar(branch) {
+  if (!branch) return;
+  try { unlinkSync(getSidecarPath(branch)); } catch { /* may not exist */ }
+}
 
 /**
  * Ensure state directory exists.
@@ -391,6 +427,10 @@ export function flushIfReady(session, config = {}) {
     const rateLimitConfig = config.rateLimit || {};
     const prLabelsConfig = loadConfig().prLabels || {};
 
+    // Read sidecar once (pre-PR planning prompts queued before this PR existed)
+    const sidecarEntries = readSidecar(session.branch);
+    let sidecarFlushed = false;
+
     for (const [prNumber, prEntries] of groups) {
       if (!isPrOpen(prNumber, session.gitRoot)) {
         updateClosedPrs(prNumber);
@@ -401,15 +441,27 @@ export function flushIfReady(session, config = {}) {
         continue;
       }
 
-      scoreAndPost(prEntries, {
+      // Merge sidecar into first successful flush only
+      const allEntries = (!sidecarFlushed && sidecarEntries.length > 0)
+        ? [...sidecarEntries, ...prEntries]
+        : prEntries;
+
+      scoreAndPost(allEntries, {
         branch: prEntries[0].branch || session.branch,
         sessionId: session.sessionId,
         cwd: session.gitRoot,
       }, prNumber);
 
+      sidecarFlushed = true;
+
       if (prLabelsConfig.enabled !== false) {
         applyPrLabels(prNumber, prLabelsConfig.labels, session.gitRoot);
       }
+    }
+
+    // Clear sidecar only after it has been included in a flush
+    if (sidecarFlushed && sidecarEntries.length > 0) {
+      clearSidecar(session.branch);
     }
 
     // Write back pending entries or clear batch
@@ -447,14 +499,17 @@ export function forceFlush(session) {
     currentSession = {};
   }
 
-  const { groups } = groupByPr(entries, {
+  const { groups, pending } = groupByPr(entries, {
     branch: session.branch,
     prNumber: session.prNumber,
     closedPrs: currentSession.closedPrs || [],
   });
 
-  // At session end: discard pending entries (no PR to post to)
+  // At session end with no resolvable PR: persist pending to sidecar for future sessions
   if (groups.size === 0) {
+    if (pending.length > 0 && session.branch) {
+      writeSidecar(pending, session.branch);
+    }
     clearBatch();
     clearTimerState();
     return;
@@ -464,6 +519,10 @@ export function forceFlush(session) {
   try {
     const rateLimitConfig = loadConfig().rateLimit || {};
     const prLabelsConfig = loadConfig().prLabels || {};
+
+    // Read sidecar once (pre-PR planning prompts queued before this PR existed)
+    const sidecarEntries = readSidecar(session.branch);
+    let sidecarFlushed = false;
 
     for (const [prNumber, prEntries] of groups) {
       if (!isPrOpen(prNumber, session.gitRoot)) {
@@ -475,15 +534,32 @@ export function forceFlush(session) {
         continue;
       }
 
-      scoreAndPost(prEntries, {
+      // Merge sidecar into first successful flush only
+      const allEntries = (!sidecarFlushed && sidecarEntries.length > 0)
+        ? [...sidecarEntries, ...prEntries]
+        : prEntries;
+
+      scoreAndPost(allEntries, {
         branch: prEntries[0].branch || session.branch,
         sessionId: session.sessionId,
         cwd: session.gitRoot,
       }, prNumber);
 
+      sidecarFlushed = true;
+
       if (prLabelsConfig.enabled !== false) {
         applyPrLabels(prNumber, prLabelsConfig.labels, session.gitRoot);
       }
+    }
+
+    // Persist any remaining pending entries to sidecar for future sessions
+    if (pending.length > 0 && session.branch) {
+      writeSidecar(pending, session.branch);
+    }
+
+    // Clear sidecar only after it has been included in a flush
+    if (sidecarFlushed && sidecarEntries.length > 0) {
+      clearSidecar(session.branch);
     }
 
     clearBatch();
