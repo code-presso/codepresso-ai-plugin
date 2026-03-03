@@ -35,6 +35,7 @@ codepresso-plugin/
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash hook: detect git commit/push
 │   ├── session-end.mjs            # Stop hook: force-flush remaining batch
 │   ├── score-and-post.mjs         # Detached process: score batch + post PR comment
+│   ├── backfill-flush.mjs         # Detached: flush pending + sidecar entries when PR is discovered
 │   └── handle-merge-transition.mjs # Detached: PR merge → task complete → epic cascade
 ├── skills/
 │   ├── setup/SKILL.md             # Interactive setup wizard
@@ -73,8 +74,13 @@ Session Start → SessionStart hook → resolve gitRoot → detect branch → fi
 First Tool  → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save to branch-keyed file
 Branch Switch → user-prompt-logger detects → reset notionContextShown → PreToolUse re-injects picker for new branch
 PR Create   → PreToolUse hook → detect `gh pr create` → read task for current branch → enforce "[TSK-XXXX] title"
+PR Create   → PostToolUse:Bash hook → extract PR number from output URL → update session.prNumber
+              → spawn backfill-flush.mjs → flush batch + sidecar (pre-PR planning prompts) to new PR
 Git Commit  → PostToolUse:Bash hook → verify branch matches session → detached `gh pr comment`
-Session End → Stop hook → groupByPr() → force-flush per PR group (discard pending/unresolvable)
+Session End → Stop hook → groupByPr() → force-flush per PR group
+              → pending entries (no PR) written to branch sidecar (codepresso-prepr-{branch}.jsonl)
+Next Session (same branch, PR now exists) → SessionStart detects sidecar → spawn backfill-flush.mjs
+              → sidecar entries prepended to first flush → cleared after successful post
 
 Sprint Start → SessionStart hook → parallel fetch [tasks, sprint+epics] → in-memory cross-reference → cache in session
 First Tool  → PreToolUse hook → hierarchical picker (grouped by epic) → user selects task → save with epicId/epicUniqueId
@@ -133,6 +139,23 @@ A single Claude session can span multiple PRs when the user switches branches. T
 
 **Branch-aware git comments** (`post-tool-git-watcher.mjs`): Before posting, checks `getCurrentBranch()` against `session.branch`. Skips the comment if branches differ (the session's `prNumber` belongs to a different branch).
 
+### 10. Pre-PR Prompt Capture — Sidecar Pattern
+Users typically plan before creating a PR. Without special handling, all prompts from the planning phase would be lost because `session.prNumber` is null and `forceFlush` at session end had no PR to post to.
+
+**Sidecar file** (`codepresso-prepr-{branch-slug}.jsonl` in `.omc/state/`): A per-branch JSONL file that persists prompts made before a PR exists. The slug is derived by replacing non-alphanumeric characters with `-` and lowercasing (max 80 chars).
+
+**Three capture paths:**
+
+1. **Same-session PR creation** (`post-tool-git-watcher.mjs`): When `gh pr create` succeeds, the output contains the PR URL (e.g. `https://github.com/org/repo/pull/42`). The hook extracts the PR number, updates `session.prNumber`, and spawns `backfill-flush.mjs` — which calls `forceFlush` with the now-known PR number, merging batch + sidecar into one comment.
+
+2. **Session-end persistence** (`pr-comment.mjs:forceFlush`): If the session ends before a PR exists, pending batch entries (those with no resolvable `prNumber`) are written to the branch sidecar instead of being discarded. They survive session boundaries.
+
+3. **Cross-session recovery** (`session-start.mjs`): On the next session start, after detecting a PR for the current branch, the hook checks if a sidecar exists for that branch. If found, it spawns `backfill-flush.mjs` to retroactively post those planning prompts to the PR.
+
+**Sidecar merge during flush**: In both `flushIfReady` and `forceFlush`, the sidecar is read once before the PR loop, merged into the first successful flush (`[...sidecarEntries, ...batchEntries]`), then cleared. If multiple PR groups exist (rare), the sidecar is only merged into the first one.
+
+**`scripts/backfill-flush.mjs`**: Minimal shared entry-point — reads session file, calls `forceFlush`. Spawned detached by both Fix 1 (post-tool) and Fix 3 (session-start).
+
 ### 9. Sprint Workflow — Forward-Only Relations
 The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개발팀 에픽`, Epic→Task via `관계형 그룹`). Reverse relation property names are fragile and user-editable. The `PROPERTY_TYPES` constant in `sprint-context.mjs` centralizes all property names and types for Sprint, Epic, and Task databases. **Critical:** Sprint and Epic DBs use `select` type for 상태, while Task DB uses `status` type — these require different Notion API shapes for updates.
 
@@ -144,7 +167,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Timeout:** 5s
 - **Input:** Standard hook stdin (session metadata)
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Writes `.omc/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs). Scans submodules for active PRs when top-level repo has none.
+- **Side effects:** Writes `.omc/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs). Scans submodules for active PRs when top-level repo has none. If a PR is detected and a branch sidecar (`codepresso-prepr-{branch}.jsonl`) exists, spawns `backfill-flush.mjs` to retroactively post pre-PR planning prompts.
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
 ### PreToolUse (`scripts/pre-tool-notion-inject.mjs`)
@@ -169,14 +192,14 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Matcher:** `Bash` only
 - **Input:** `toolInput.command` and `toolOutput` from stdin
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Checks `getCurrentBranch()` against `session.branch` — skips comment if branches differ. Spawns detached `gh pr comment` for git operations when branch matches. Also detects `gh pr merge` commands and spawns `handle-merge-transition.mjs` as a detached process for Notion status transitions.
+- **Side effects:** Checks `getCurrentBranch()` against `session.branch` — skips comment if branches differ. Spawns detached `gh pr comment` for git operations when branch matches. Detects `gh pr create` (checked **before** the `prNumber` guard): extracts PR number from output URL, updates `session.prNumber`, spawns `backfill-flush.mjs` to post pre-PR planning prompts. Also detects `gh pr merge` commands and spawns `handle-merge-transition.mjs` as a detached process for Notion status transitions.
 - **Failure mode:** Silent
 
 ### Stop (`scripts/session-end.mjs`)
 - **Timeout:** 5s
 - **Input:** Standard hook stdin
 - **Output:** `{ continue: true }`
-- **Side effects:** Force-flushes remaining batch entries (prevents prompt loss)
+- **Side effects:** Force-flushes remaining batch entries. If a PR exists, flushes to it (merging sidecar entries). If no PR exists yet, pending entries are written to the branch sidecar (`codepresso-prepr-{branch}.jsonl`) for recovery in a future session.
 - **Failure mode:** Silent
 
 ---
@@ -195,6 +218,7 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 | `codepresso-flush.lock` | Text | Atomic flush lock (PID, stale after 30s) |
 | `codepresso-rate-limit.json` | JSON | Rate limit state per PR (hourly + session counts) |
 | `codepresso-merge-{N}.json` | JSON | Temporary payload for detached merge handler (auto-cleaned) |
+| `codepresso-prepr-{branch}.jsonl` | JSONL | Branch sidecar: pre-PR planning prompts persisted across sessions. Written at session end when no PR exists; merged into first flush after PR is created; cleared after successful post. Branch name is slugified (non-alphanumeric → `-`, max 80 chars). |
 
 **Analytics data** (separate location: `~/.codepresso/analytics/`):
 
