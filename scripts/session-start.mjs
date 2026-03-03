@@ -11,9 +11,12 @@ import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { fetchSprintWithEpics } from './lib/sprint-context.mjs';
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { getSidecarPath } from './lib/pr-comment.mjs';
 
 const STATE_DIR = join(process.cwd(), '.omc', 'state');
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
@@ -164,6 +167,23 @@ async function main() {
 
     ensureStateDir();
     writeFileSync(SESSION_FILE, JSON.stringify(sessionState, null, 2), 'utf-8');
+
+    // Fix 3: If a PR is detected, check for a sidecar of pre-PR planning prompts
+    // from a prior session on this branch and backfill them into the PR.
+    if (pr && branch) {
+      const sidecarPath = getSidecarPath(branch);
+      if (existsSync(sidecarPath)) {
+        const scriptPath = join(dirname(fileURLToPath(import.meta.url)), 'backfill-flush.mjs');
+        const child = spawn('node', [scriptPath], {
+          cwd: gitRoot,
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+        contextParts.push(`[Codepresso] Pre-PR planning prompts found — flushing to PR #${pr.number}.`);
+        log.info(`Sidecar found for branch ${branch} — spawning backfill flush to PR #${pr.number}`);
+      }
+    }
 
     if (contextParts.length === 0) {
       process.stdout.write(JSON.stringify({ continue: true }));

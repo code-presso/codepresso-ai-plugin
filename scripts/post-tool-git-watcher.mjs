@@ -66,6 +66,38 @@ function isGitMerge(command) {
 }
 
 /**
+ * Check if command is a gh pr create.
+ */
+function isPrCreate(command) {
+  return /\bgh\s+pr\s+create\b/.test(command);
+}
+
+/**
+ * Extract PR number from gh pr create output (URL contains /pull/NNN).
+ */
+function extractCreatedPrNumber(output) {
+  const match = output?.match(/\/pull\/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Spawn backfill-flush.mjs as a detached process to post pre-PR planning prompts.
+ */
+function spawnBackfillFlush(cwd) {
+  try {
+    const scriptPath = join(dirname(fileURLToPath(import.meta.url)), 'backfill-flush.mjs');
+    const child = spawn('node', [scriptPath], {
+      cwd,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch {
+    log.debug('Failed to spawn backfill flush');
+  }
+}
+
+/**
  * Extract PR number from gh pr merge command or fall back to session PR.
  */
 function extractMergedPr(command, session) {
@@ -134,6 +166,27 @@ async function main() {
       log.debug(`Branch mismatch: session=${session.branch}, current=${currentBranch} — skipping git comment`);
       process.stdout.write(JSON.stringify({ continue: true }));
       return;
+    }
+
+    // Check for gh pr create BEFORE the prNumber guard — PR doesn't exist yet
+    if (isPrCreate(command)) {
+      const newPrNumber = extractCreatedPrNumber(output);
+      if (newPrNumber) {
+        log.info(`PR create detected: #${newPrNumber}`);
+        session.prNumber = newPrNumber;
+        const prUrlLine = output.split('\n').find(l => l.includes('/pull/'));
+        if (prUrlLine) session.prUrl = prUrlLine.trim();
+        writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+
+        // Spawn detached backfill to flush pre-PR planning prompts into the new PR
+        spawnBackfillFlush(session.gitRoot || process.cwd());
+
+        process.stdout.write(JSON.stringify({
+          continue: true,
+          additionalContext: `[Codepresso] PR #${newPrNumber} created — flushing pre-PR planning prompts to the PR.`,
+        }));
+        return;
+      }
     }
 
     if (!session.prNumber) {
