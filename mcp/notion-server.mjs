@@ -15,7 +15,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginRoot = join(__dirname, '..');
 
 if (!existsSync(join(pluginRoot, 'node_modules', '@modelcontextprotocol'))) {
-  execSync('npm install --no-audit --no-fund', { cwd: pluginRoot, stdio: 'ignore' });
+  try {
+    execSync('npm install --no-audit --no-fund', { cwd: pluginRoot, stdio: 'pipe', timeout: 60000 });
+  } catch (error) {
+    process.stderr.write(`[codepresso-notion] npm install failed: ${error?.message || error}\n`);
+    process.exit(1);
+  }
 }
 
 // Dynamic imports — resolved after npm install has run
@@ -28,6 +33,26 @@ import { homedir } from 'node:os';
 import { buildSprintContext, fetchSprintWithEpics, PROPERTY_TYPES, readTaskStatus } from '../scripts/lib/sprint-context.mjs';
 
 const CONFIG_PATH = join(homedir(), '.codepresso', 'config.json');
+
+function log(msg) {
+  process.stderr.write(`[codepresso-notion] ${msg}\n`);
+}
+
+// Process-level error handlers
+// Only suppress transport-level errors; let real bugs crash + restart cleanly
+const SUPPRESSED_ERRORS = new Set(['EPIPE', 'ECONNRESET', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END']);
+
+process.on('uncaughtException', (error) => {
+  log(`Uncaught exception: ${error?.message || error}`);
+  if (!SUPPRESSED_ERRORS.has(error?.code)) {
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  log(`Unhandled rejection: ${reason?.message || reason}`);
+  // Don't crash on unhandled rejections — these are typically from fire-and-forget promises
+});
 
 function loadNotionConfig() {
   try {
@@ -54,27 +79,35 @@ async function notionFetch(path, method = 'GET', body = null) {
     throw new Error('Notion API key not configured. Run codepresso:setup first.');
   }
 
-  const options = {
-    method,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
-    },
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
-  if (body) {
-    options.body = JSON.stringify(body);
+  try {
+    const options = {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Notion-Version': NOTION_VERSION,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(`${NOTION_API}${path}`, options);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Notion API error (${response.status}): ${errorBody}`);
+    }
+
+    return response.json();
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const response = await fetch(`${NOTION_API}${path}`, options);
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Notion API error (${response.status}): ${errorBody}`);
-  }
-
-  return response.json();
 }
 
 // --- Tool definitions ---
@@ -570,6 +603,18 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
+// Log server errors to stderr instead of crashing
+server.onerror = (error) => {
+  log(`Server error: ${error?.message || error}`);
+};
+
+// Also listen for error events in case SDK uses EventEmitter pattern
+if (typeof server.on === 'function') {
+  server.on('error', (error) => {
+    log(`Server event error: ${error?.message || error}`);
+  });
+}
+
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: TOOLS,
 }));
@@ -625,6 +670,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Graceful shutdown
+async function shutdown() {
+  try {
+    await server.close();
+  } catch {
+    // ignore close errors
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
 // Start server
 const transport = new StdioServerTransport();
-await server.connect(transport);
+try {
+  await server.connect(transport);
+} catch (error) {
+  log(`Failed to connect transport: ${error?.message || error}`);
+  process.exit(1);
+}

@@ -29,7 +29,8 @@ codepresso-plugin/
 │   │   ├── notion-tasks.mjs       # Notion task fetcher with unique ID extraction
 │   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher with PROPERTY_TYPES
 │   │   └── status-transitions.mjs # Task/Epic status transitions with Notion API
-│   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, cache state
+│   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, daily greeting, cache state
+│   ├── daily-chat-greeting.mjs   # Detached process: send daily Google Chat greeting with Notion tasks
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit hook: batch prompts silently
 │   ├── pre-tool-notion-inject.mjs # PreToolUse hook: task picker + PR title enforcement
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash hook: detect git commit/push
@@ -46,7 +47,8 @@ codepresso-plugin/
 │   ├── dashboard/SKILL.md         # Team analytics dashboard
 │   ├── sprint-dashboard/SKILL.md  # Sprint progress dashboard
 │   ├── sprint-retro/SKILL.md      # Sprint retrospective report
-│   └── generate-epic/SKILL.md    # Epic PRD document generation
+│   ├── generate-epic/SKILL.md    # Epic PRD document generation
+│   └── daily-chat/SKILL.md      # Daily Google Chat greeting (manual trigger)
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing 9 Notion API tools (5 base + 4 sprint)
@@ -70,7 +72,9 @@ User Prompt → UserPromptSubmit hook → detect branch change → redact secret
                                           ↓
                                      API scoring → PR comment via `gh` → apply PR labels (per-PR, first flush)
 
-Session Start → SessionStart hook → resolve gitRoot → detect branch → find PR → fetch Notion tasks → cache state
+Session Start → SessionStart hook → resolve gitRoot → detect branch → find PR → fetch Notion tasks → daily greeting check → cache state
+Daily Greeting → first session of day? → read ~/.codepresso/daily-greeting.json → spawn daily-chat-greeting.mjs (detached)
+              → format in-progress tasks → gws chat spaces messages create → update lastDate
 First Tool  → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save to branch-keyed file
 Branch Switch → user-prompt-logger detects → reset notionContextShown → PreToolUse re-injects picker for new branch
 PR Create   → PreToolUse hook → detect `gh pr create` → read task for current branch → enforce "[TSK-XXXX] title"
@@ -139,6 +143,9 @@ A single Claude session can span multiple PRs when the user switches branches. T
 
 **Branch-aware git comments** (`post-tool-git-watcher.mjs`): Before posting, checks `getCurrentBranch()` against `session.branch`. Skips the comment if branches differ (the session's `prNumber` belongs to a different branch).
 
+### 9. Daily Google Chat Greeting
+On the first Claude session of each day, the plugin sends a Google Chat message to a configured space with the user's in-progress Notion tasks. Detection uses `~/.codepresso/daily-greeting.json` which stores `{ lastDate: "YYYY-MM-DD" }`. The greeting is sent via a detached process (`daily-chat-greeting.mjs`) using the `gws` CLI (Google Workspace CLI) with OAuth, so messages appear as the user's profile (not a bot). The message groups tasks into "진행 중" (in progress) and "대기 중" (waiting) sections. Requires `googleChat.enabled: true` and `googleChat.spaceId` in config. The `gws` CLI must be authenticated with `chat.messages.create` scope.
+
 ### 10. Pre-PR Prompt Capture — Sidecar Pattern
 Users typically plan before creating a PR. Without special handling, all prompts from the planning phase would be lost because `session.prNumber` is null and `forceFlush` at session end had no PR to post to.
 
@@ -156,7 +163,7 @@ Users typically plan before creating a PR. Without special handling, all prompts
 
 **`scripts/backfill-flush.mjs`**: Minimal shared entry-point — reads session file, calls `forceFlush`. Spawned detached by both Fix 1 (post-tool) and Fix 3 (session-start).
 
-### 9. Sprint Workflow — Forward-Only Relations
+### 11. Sprint Workflow — Forward-Only Relations
 The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개발팀 에픽`, Epic→Task via `관계형 그룹`). Reverse relation property names are fragile and user-editable. The `PROPERTY_TYPES` constant in `sprint-context.mjs` centralizes all property names and types for Sprint, Epic, and Task databases. **Critical:** Sprint and Epic DBs use `select` type for 상태, while Task DB uses `status` type — these require different Notion API shapes for updates.
 
 ---
@@ -219,6 +226,13 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 | `codepresso-rate-limit.json` | JSON | Rate limit state per PR (hourly + session counts) |
 | `codepresso-merge-{N}.json` | JSON | Temporary payload for detached merge handler (auto-cleaned) |
 | `codepresso-prepr-{branch}.jsonl` | JSONL | Branch sidecar: pre-PR planning prompts persisted across sessions. Written at session end when no PR exists; merged into first flush after PR is created; cleared after successful post. Branch name is slugified (non-alphanumeric → `-`, max 80 chars). |
+| `codepresso-greeting-{ts}.json` | JSON | Temporary payload for daily greeting (auto-cleaned) |
+
+**Daily greeting state** (separate location: `~/.codepresso/`):
+
+| File | Format | Purpose |
+|------|--------|---------|
+| `daily-greeting.json` | JSON | Last greeting date (`{ lastDate: "YYYY-MM-DD" }`) |
 
 **Analytics data** (separate location: `~/.codepresso/analytics/`):
 
@@ -292,6 +306,11 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
     "outputDir": "docs/prd",                       // Output directory relative to gitRoot
     "includeTaskDetails": true,                    // Include task table with status/assignee
     "customSections": []                           // Extra section headings to include
+  },
+  "googleChat": {
+    "enabled": false,                              // Enable Google Chat integration
+    "dailyGreeting": true,                         // Send daily task summary on first session
+    "spaceId": null                                // Google Chat space ID (e.g., "AAQAxpZZ_aE")
   },
   "excludePatterns": [                             // Regex patterns to skip logging
     "^/oh-my-claudecode:",
@@ -381,6 +400,7 @@ echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1
 | `ANTHROPIC_API_KEY` env var | No | Prompt quality scoring (graceful fallback) |
 | Notion API key | No | Notion task sync features |
 | AWS CLI | No | Deploy features (ECS, CodePipeline) |
+| `gws` CLI | No | Daily greeting messages (Google Workspace CLI with OAuth, sends as user profile) |
 
 ---
 

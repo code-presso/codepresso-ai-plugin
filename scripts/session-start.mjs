@@ -11,8 +11,9 @@ import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { fetchSprintWithEpics } from './lib/sprint-context.mjs';
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -20,7 +21,54 @@ import { getSidecarPath } from './lib/pr-comment.mjs';
 
 const STATE_DIR = join(process.cwd(), '.omc', 'state');
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
+const GREETING_STATE_FILE = join(homedir(), '.codepresso', 'daily-greeting.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const log = createLogger('session-start');
+
+/**
+ * Check if today is the first session of the day.
+ */
+function isFirstSessionOfDay() {
+  try {
+    const state = JSON.parse(readFileSync(GREETING_STATE_FILE, 'utf-8'));
+    const today = new Date().toISOString().slice(0, 10);
+    return state.lastDate !== today;
+  } catch {
+    // File doesn't exist or is corrupted — treat as first session
+    return true;
+  }
+}
+
+/**
+ * Spawn the daily Google Chat greeting as a detached process.
+ */
+function spawnDailyGreeting(tasks, config) {
+  try {
+    const spaceId = config.googleChat?.spaceId;
+    if (!spaceId) return;
+
+    const payload = {
+      tasks,
+      spaceId,
+      displayName: config.notion?.displayName || null,
+    };
+
+    const payloadPath = join(STATE_DIR, `codepresso-greeting-${Date.now()}.json`);
+    writeFileSync(payloadPath, JSON.stringify(payload), 'utf-8');
+
+    const child = spawn(
+      process.execPath,
+      [join(__dirname, 'daily-chat-greeting.mjs'), payloadPath],
+      { detached: true, stdio: 'ignore' }
+    );
+    child.unref();
+
+    log.info('Daily greeting process spawned');
+  } catch (err) {
+    log.error(`Failed to spawn daily greeting: ${err.message}`);
+  }
+}
 
 function ensureStateDir() {
   try {
@@ -145,6 +193,16 @@ async function main() {
       }
     } catch {
       // Notion/Sprint fetch failed — skip silently
+    }
+
+    // Daily Google Chat greeting (first session of the day)
+    if (
+      config.googleChat?.enabled
+      && config.googleChat?.dailyGreeting
+      && notionTasks
+      && isFirstSessionOfDay()
+    ) {
+      spawnDailyGreeting(notionTasks, config);
     }
 
     const sessionState = {
