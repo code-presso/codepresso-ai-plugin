@@ -219,10 +219,16 @@ export async function buildSprintContext(notionConfig = null) {
   const config = notionConfig || loadSprintConfig();
   if (!config.apiKey || !config.databases?.sprint || !config.databases?.task) return null;
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+
   try {
     // Get sprint + epics
     const data = await fetchSprintWithEpics(config, 30000); // generous timeout for MCP
-    if (!data) return null;
+    if (!data) {
+      clearTimeout(timeout);
+      return null;
+    }
 
     let totalTasks = 0;
     let completedTasks = 0;
@@ -246,6 +252,7 @@ export async function buildSprintContext(notionConfig = null) {
           }),
         },
         config.apiKey,
+        controller.signal,
       );
 
       const taskPages = taskData?.results || [];
@@ -377,7 +384,9 @@ export async function buildSprintContext(notionConfig = null) {
         overallPct: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
       },
     };
-  } catch {
+  } catch (error) {
+    clearTimeout(timeout);
+    process.stderr.write(`[codepresso] buildSprintContext error: ${error?.message || error}\n`);
     return null;
   }
 }

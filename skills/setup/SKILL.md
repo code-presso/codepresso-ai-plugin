@@ -70,17 +70,36 @@ set logging preferences, and write config files.
      }
      ```
 
-5. **PR logging preferences**
+5. **Google Chat daily greeting** (optional)
+   - Ask: "Enable daily Google Chat greeting?" using AskUserQuestion
+   - If yes:
+     - Explain: sends a summary of in-progress Notion tasks to a Google Chat space on the first Claude session each day, as the user's profile (not a bot)
+     - Requires `gws` CLI installed and authenticated with `chat.messages.create` scope
+     - Check `gws` CLI: `which gws` and `gws auth status`
+     - If not authenticated, guide user: `gws auth login --scopes "https://www.googleapis.com/auth/chat.messages.create,https://www.googleapis.com/auth/chat.messages,https://www.googleapis.com/auth/chat.spaces.readonly"`
+     - Ask for Google Chat space ID (default: `AAAAxQcYA-o` — found in the space URL: `https://chat.google.com/room/SPACE_ID`)
+   - Write `googleChat` section to config:
+     ```json
+     {
+       "googleChat": {
+         "enabled": true,
+         "dailyGreeting": true,
+         "spaceId": "AAAAxQcYA-o"
+       }
+     }
+     ```
+
+6. **PR logging preferences**
    - Ask for batch interval (default: 60s)
    - Ask for max batch size (default: 10)
    - Ask for prompt truncation length (default: 500 chars)
 
-6. **Write configuration**
+7. **Write configuration**
    - Write global config to `~/.codepresso/config.json`
    - Optionally write per-project `.codepresso.json`
    - Add `.codepresso.json` pattern to `.gitignore` if it contains secrets
 
-7. **Configure MCP tool permissions**
+8. **Configure MCP tool permissions**
    - Create `.claude/settings.local.json` (if not exists) to auto-allow Notion MCP tools:
      ```json
      {
@@ -95,7 +114,7 @@ set logging preferences, and write config files.
    - If the file already exists, merge the `permissions.allow` entries without overwriting existing ones
    - This prevents permission prompts when running sprint-dashboard, sprint-retro, and notion-sync skills
 
-8. **Verify setup**
+9. **Verify setup**
    - Start a test by detecting current branch and PR
    - If sprint workflow enabled, test sprint fetch: query sprint DB for current sprint
    - Confirm everything works
@@ -129,4 +148,5 @@ Action: Run wizard focused on per-project config
 - [ ] Sprint workflow preferences set (autoTransition, epicAutoComplete, prTitleFormat)
 - [ ] MCP tool permissions configured in `.claude/settings.local.json`
 - [ ] Epic PRD configuration set (if requested)
+- [ ] Google Chat daily greeting configured (if requested): gws CLI authenticated, spaceId set
 </Final_Checklist>

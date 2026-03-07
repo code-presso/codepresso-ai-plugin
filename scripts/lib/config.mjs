@@ -85,6 +85,11 @@ const DEFAULT_CONFIG = {
     tagKey: 'Email',
     purposeTag: 'cloud-dev-env',
   },
+  googleChat: {
+    enabled: false,
+    dailyGreeting: true,
+    spaceId: null,                // Google Chat space ID (e.g., '<SPACE_ID>')
+  },
   excludePatterns: ['^/oh-my-claudecode:', '^(cancelomc|stopomc)$'],
   debug: false,
 };
@@ -199,7 +204,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'epicDocs', 'cloudDev', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'epicDocs', 'cloudDev', 'googleChat', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
@@ -316,6 +321,18 @@ export function validateConfig(config) {
     }
     if (config.epicDocs.customSections && !Array.isArray(config.epicDocs.customSections)) {
       warnings.push(`epicDocs.customSections should be an array, got ${typeof config.epicDocs.customSections}`);
+    }
+  }
+
+  if (config.googleChat) {
+    if (typeof config.googleChat.enabled !== 'undefined' && typeof config.googleChat.enabled !== 'boolean') {
+      warnings.push(`googleChat.enabled should be boolean, got ${typeof config.googleChat.enabled}`);
+    }
+    if (typeof config.googleChat.dailyGreeting !== 'undefined' && typeof config.googleChat.dailyGreeting !== 'boolean') {
+      warnings.push(`googleChat.dailyGreeting should be boolean, got ${typeof config.googleChat.dailyGreeting}`);
+    }
+    if (config.googleChat.spaceId !== null && config.googleChat.spaceId !== undefined && typeof config.googleChat.spaceId !== 'string') {
+      warnings.push(`googleChat.spaceId should be a string, got ${typeof config.googleChat.spaceId}`);
     }
   }
 
