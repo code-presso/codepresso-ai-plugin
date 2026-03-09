@@ -599,7 +599,7 @@ async function handleSprintRetro(args) {
 // --- Server setup ---
 
 const server = new Server(
-  { name: 'codepresso-notion', version: '0.1.6' },
+  { name: 'codepresso-notion', version: '0.1.7' },
   { capabilities: { tools: {} } }
 );
 
