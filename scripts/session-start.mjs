@@ -202,7 +202,11 @@ async function main() {
       && notionTasks
       && isFirstSessionOfDay()
     ) {
-      spawnDailyGreeting(notionTasks, config);
+      const inProgressTasks = notionTasks.filter(t => {
+        const s = (t.status || '').toLowerCase().trim();
+        return s === '진행 중' || s === 'in progress' || s === 'in_progress';
+      });
+      spawnDailyGreeting(inProgressTasks, config);
     }
 
     const sessionState = {
