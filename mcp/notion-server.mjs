@@ -54,10 +54,21 @@ process.on('unhandledRejection', (reason) => {
   // Don't crash on unhandled rejections — these are typically from fire-and-forget promises
 });
 
+/** Config cache — re-read from disk at most every 30s */
+let _configCache = null;
+let _configCacheTime = 0;
+const CONFIG_CACHE_TTL = 30000;
+
 function loadNotionConfig() {
+  const now = Date.now();
+  if (_configCache && (now - _configCacheTime) < CONFIG_CACHE_TTL) {
+    return _configCache;
+  }
   try {
     const config = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    return config.notion || {};
+    _configCache = config.notion || {};
+    _configCacheTime = now;
+    return _configCache;
   } catch {
     return {};
   }
@@ -70,8 +81,13 @@ function loadNotionKey() {
 const NOTION_API = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
 
+/** Transient HTTP status codes worth retrying */
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 500;
+
 /**
- * Make an authenticated request to the Notion API.
+ * Make an authenticated request to the Notion API with retry + exponential backoff.
  */
 async function notionFetch(path, method = 'GET', body = null) {
   const apiKey = loadNotionKey();
@@ -79,35 +95,67 @@ async function notionFetch(path, method = 'GET', body = null) {
     throw new Error('Notion API key not configured. Run codepresso:setup first.');
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
-  try {
-    const options = {
-      method,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Notion-Version': NOTION_VERSION,
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-    };
+    try {
+      const options = {
+        method,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Notion-Version': NOTION_VERSION,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      };
 
-    if (body) {
-      options.body = JSON.stringify(body);
+      if (body) {
+        options.body = JSON.stringify(body);
+      }
+
+      const response = await fetch(`${NOTION_API}${path}`, options);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        lastError = new Error(`Notion API error (${response.status}): ${errorBody}`);
+
+        if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_RETRIES) {
+          clearTimeout(timeout);
+          const retryAfter = response.headers.get('retry-after');
+          const delay = retryAfter
+            ? Math.min(parseInt(retryAfter, 10) * 1000, 10000)
+            : BASE_DELAY_MS * Math.pow(2, attempt);
+          log(`Retrying ${method} ${path} after ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES}, status ${response.status})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeout);
+      lastError = error;
+
+      // Retry on network/abort errors (not on non-retryable HTTP errors)
+      const isNetworkError = error.name === 'AbortError' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
+      if (isNetworkError && attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        log(`Retrying ${method} ${path} after ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES}, ${error.name || error.code})`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+
+      throw lastError;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const response = await fetch(`${NOTION_API}${path}`, options);
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Notion API error (${response.status}): ${errorBody}`);
-    }
-
-    return response.json();
-  } finally {
-    clearTimeout(timeout);
   }
+
+  throw lastError;
 }
 
 // --- Tool definitions ---

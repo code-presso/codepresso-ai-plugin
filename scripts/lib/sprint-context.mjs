@@ -11,6 +11,11 @@ import { homedir } from 'node:os';
 const NOTION_API = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
 
+/** Transient HTTP status codes worth retrying */
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+const MAX_RETRIES = 2;
+const BASE_DELAY_MS = 400;
+
 /**
  * Property type constants for all three databases.
  * Sprint and Epic use 'select' type for status.
@@ -62,21 +67,49 @@ function loadSprintConfig() {
 }
 
 /**
- * Make an authenticated Notion API request.
+ * Make an authenticated Notion API request with retry for transient errors.
  */
 async function notionFetch(path, options = {}, apiKey, signal) {
-  const response = await fetch(`${NOTION_API}${path}`, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    signal,
-  });
-  if (!response.ok) return null;
-  return response.json();
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(`${NOTION_API}${path}`, {
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Notion-Version': NOTION_VERSION,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        signal,
+      });
+
+      if (!response.ok) {
+        if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_RETRIES) {
+          const retryAfter = response.headers.get('retry-after');
+          const delay = retryAfter
+            ? Math.min(parseInt(retryAfter, 10) * 1000, 5000)
+            : BASE_DELAY_MS * Math.pow(2, attempt);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        return null;
+      }
+
+      return response.json();
+    } catch (error) {
+      lastError = error;
+      // Don't retry if the signal was aborted (caller's timeout)
+      if (signal?.aborted) return null;
+      if (attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
 }
 
 // --- Property Readers (DO NOT use extractStatus from notion-tasks.mjs) ---
