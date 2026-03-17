@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
 const GLOBAL_CONFIG_PATH = join(homedir(), '.codepresso', 'config.json');
@@ -168,6 +168,24 @@ export function loadConfig(cwd = process.cwd(), { globalConfigPath } = {}) {
   });
 
   return merged;
+}
+
+/**
+ * Ensure the global config file exists, creating it with defaults if missing.
+ * Returns true if config now exists (always true unless write fails).
+ * @param {string} [globalConfigPath] - Path to global config (defaults to ~/.codepresso/config.json)
+ * @returns {boolean}
+ */
+export function ensureSetup(globalConfigPath) {
+  const configPath = globalConfigPath ?? GLOBAL_CONFIG_PATH;
+  if (existsSync(configPath)) return true;
+  try {
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({}, null, 2), 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
