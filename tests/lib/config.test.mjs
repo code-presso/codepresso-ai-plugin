@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { isExcluded, isSetupComplete, loadConfig } from '../../scripts/lib/config.mjs';
+import { isExcluded, isSetupComplete, ensureSetup, loadConfig } from '../../scripts/lib/config.mjs';
+import { existsSync, unlinkSync, rmdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 describe('config.mjs', () => {
   describe('isExcluded', () => {
@@ -47,7 +51,29 @@ describe('config.mjs', () => {
 
     it('returns true when global config exists', () => {
       // package.json always exists in the project root — use it as a stand-in
-      assert.strictEqual(isSetupComplete(new URL('../../package.json', import.meta.url).pathname), true);
+      assert.strictEqual(isSetupComplete(fileURLToPath(new URL('../../package.json', import.meta.url))), true);
+    });
+  });
+
+  describe('ensureSetup', () => {
+    it('creates config file when it does not exist', () => {
+      const dir = join(tmpdir(), `codepresso-test-${Date.now()}`);
+      const configPath = join(dir, 'config.json');
+
+      assert.strictEqual(existsSync(configPath), false);
+      const result = ensureSetup(configPath);
+      assert.strictEqual(result, true);
+      assert.strictEqual(existsSync(configPath), true);
+
+      // Cleanup
+      unlinkSync(configPath);
+      rmdirSync(dir);
+    });
+
+    it('returns true when config already exists', () => {
+      // package.json always exists — use as stand-in
+      const existing = fileURLToPath(new URL('../../package.json', import.meta.url));
+      assert.strictEqual(ensureSetup(existing), true);
     });
   });
 

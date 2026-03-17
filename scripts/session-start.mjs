@@ -6,7 +6,7 @@
  */
 
 import { readStdin } from './lib/stdin.mjs';
-import { loadConfig, isSetupComplete } from './lib/config.mjs';
+import { loadConfig, ensureSetup } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
@@ -82,18 +82,8 @@ async function main() {
   // Consume stdin (required by hook protocol)
   await readStdin(1000);
 
-  // Enforce setup if global config doesn't exist (first run after install)
-  if (!isSetupComplete()) {
-    process.stdout.write(JSON.stringify({
-      continue: true,
-      additionalContext: [
-        '[Codepresso] Setup required — this plugin has not been configured yet.',
-        'Please run the setup wizard now by invoking the `/codepresso:setup` skill.',
-        'The plugin will not log prompts or track activity until setup is complete.',
-      ].join('\n'),
-    }));
-    return;
-  }
+  // Auto-create global config with defaults if missing (no more repeated setup prompts)
+  ensureSetup();
 
   try {
     const config = loadConfig();
