@@ -68,26 +68,14 @@ function isCompletedStatus(status) {
 }
 
 /**
- * Read the selected task for a specific branch.
- * Supports both new branch-keyed format and legacy singleton format.
- * @param {string} [branch] - Branch name to look up
- * @returns {{ id: string, title: string, uniqueId?: string }|null}
+ * Read the selected task (flat object).
+ * @returns {{ id: string, title: string, uniqueId?: string, epicId?: string, epicUniqueId?: string }|null}
  */
-function readSelectedTask(branch) {
+function readSelectedTask() {
   try {
     if (!existsSync(SELECTED_TASK_FILE)) return null;
     const data = JSON.parse(readFileSync(SELECTED_TASK_FILE, 'utf-8'));
-
-    // New format: branch-keyed map { "branch-name": { id, title, uniqueId } }
-    if (branch && data[branch] && data[branch].id) {
-      return data[branch];
-    }
-
-    // Legacy format: singleton { id, title, uniqueId } — migrate on read
-    if (data.id && data.title) {
-      return data;
-    }
-
+    if (data.id && data.title) return data;
     return null;
   } catch {
     return null;
@@ -138,9 +126,8 @@ function buildPickerContext(notionContext, notionTasks) {
     '   a. If the task status is NOT already "진행 중", use the mcp__notion__notion_update_page or mcp__plugin_codepresso_notion__notion_update_page MCP tool to update the page status property to "진행 중".',
     '      Use: { page_id: "<task-id>", properties: { "상태": { "status": { "name": "진행 중" } } } }',
     '   b. IMPORTANT: Save the selected task by writing a JSON file:',
-    `      Run a small Node.js script to merge the selection into the existing file (preserving other branches):`,
-    `      node -e "const fs=require('fs'); const f=${JSON.stringify(SELECTED_TASK_FILE)}; let d={}; try{d=JSON.parse(fs.readFileSync(f,'utf-8'))}catch{} if(d.id)d={}; d['<CURRENT-BRANCH>']={id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>',epicId:null,epicUniqueId:null}; fs.writeFileSync(f,JSON.stringify(d,null,2))"`,
-    `      Replace <CURRENT-BRANCH> with the actual current git branch name.`,
+    `      Write a JSON file to ${SELECTED_TASK_FILE}:`,
+    `      node -e "require('fs').writeFileSync(${JSON.stringify(SELECTED_TASK_FILE)}, JSON.stringify({id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>',epicId:null,epicUniqueId:null}, null, 2))"`,
     '   c. Ask the user if they want to create a feature branch for this task.',
     '   d. If yes, suggest a branch name like "feature/<slugified-task-title>" and create it with `git checkout -b <branch-name>`.',
     '3. If user selects "Other" or types a custom response, just acknowledge and proceed normally without updating Notion.',
@@ -289,9 +276,8 @@ function buildHierarchicalPickerContext(session) {
     '   a. If the task status is NOT already "진행 중", use the mcp__notion__notion_update_page or mcp__plugin_codepresso_notion__notion_update_page MCP tool to update the page status property to "진행 중".',
     '      Use: { page_id: "<task-id>", properties: { "상태": { "status": { "name": "진행 중" } } } }',
     '   b. IMPORTANT: Save the selected task by writing a JSON file:',
-    `      Run a small Node.js script to merge the selection into the existing file (preserving other branches):`,
-    `      node -e "const fs=require('fs'); const f=${JSON.stringify(SELECTED_TASK_FILE)}; let d={}; try{d=JSON.parse(fs.readFileSync(f,'utf-8'))}catch{} if(d.id)d={}; d['<CURRENT-BRANCH>']={id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>',epicId:'<epic-id-or-null>',epicUniqueId:'<epic-unique-id-or-null>'}; fs.writeFileSync(f,JSON.stringify(d,null,2))"`,
-    `      Replace <CURRENT-BRANCH> with the actual current git branch name.`,
+    `      Write a JSON file to ${SELECTED_TASK_FILE}:`,
+    `      node -e "require('fs').writeFileSync(${JSON.stringify(SELECTED_TASK_FILE)}, JSON.stringify({id:'<task-id>',title:'<task-title>',uniqueId:'<unique-id-or-null>',epicId:'<epic-id-or-null>',epicUniqueId:'<epic-unique-id-or-null>'}, null, 2))"`,
     `      Replace <epic-id-or-null> and <epic-unique-id-or-null> with the epicId and epicUniqueId from the task data above (use null if not present).`,
     '   c. Ask the user if they want to create a feature branch for this task.',
     '   d. If yes, suggest a branch name like "feature/<slugified-task-title>" and create it with `git checkout -b <branch-name>`.',
@@ -335,9 +321,7 @@ function emitAndMark(session, context) {
  * Returns true if handled, false to fall through.
  */
 function handlePrCreate(command, session) {
-  // Get current branch from session
-  const branch = session?.branch || null;
-  const selectedTask = readSelectedTask(branch);
+  const selectedTask = readSelectedTask();
   if (!selectedTask?.uniqueId) return false;
 
   // Extract --title value from the command
