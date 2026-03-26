@@ -10,7 +10,7 @@
     {
       "name": "codepresso",
       "description": "Team workflow plugin - GitHub PR activity logging, prompt quality scoring, git operation tracking, Notion task sync, and optional deployment integration for Claude Code.",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "author": {
         "name": "Code Presso"
       },
