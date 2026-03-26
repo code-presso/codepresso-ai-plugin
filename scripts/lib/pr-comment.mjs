@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn, execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { loadConfig } from './config.mjs';
 import { redactSecrets } from './redactor.mjs';
 import { canPost, recordPost } from './rate-limiter.mjs';
@@ -113,52 +113,6 @@ function writeBatch(entries) {
   ensureStateDir();
   const content = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
   writeFileSync(BATCH_FILE, content, 'utf-8');
-}
-
-/**
- * Group batch entries by PR number for multi-PR flush.
- * - Entries with explicit prNumber are grouped directly
- * - Entries with matching branch but null prNumber get backfilled from fallbackSession
- * - Legacy entries (no branch/prNumber fields) fall back to fallbackSession.prNumber
- * - Entries for closed PRs are discarded
- * - Unresolvable entries go to pending
- *
- * @param {Array} entries
- * @param {{ branch?: string, prNumber?: number|null, closedPrs?: number[] }} fallbackSession
- * @returns {{ groups: Map<number, Array>, pending: Array }}
- */
-export function groupByPr(entries, fallbackSession = {}) {
-  const groups = new Map();
-  const pending = [];
-  const closedPrs = fallbackSession.closedPrs || [];
-
-  for (const entry of entries) {
-    let prNumber = entry.prNumber ?? null;
-
-    // Backfill: entries whose branch matches session but have no prNumber
-    if (!prNumber && entry.branch && entry.branch === fallbackSession.branch && fallbackSession.prNumber) {
-      prNumber = fallbackSession.prNumber;
-    }
-
-    // Legacy entries (no branch/prNumber fields at all) → fallback to session
-    if (!prNumber && !entry.branch) {
-      prNumber = fallbackSession.prNumber ?? null;
-    }
-
-    // Skip entries for closed PRs
-    if (prNumber && closedPrs.includes(prNumber)) {
-      continue;
-    }
-
-    if (prNumber) {
-      if (!groups.has(prNumber)) groups.set(prNumber, []);
-      groups.get(prNumber).push(entry);
-    } else {
-      pending.push(entry);
-    }
-  }
-
-  return { groups, pending };
 }
 
 /**
@@ -279,71 +233,6 @@ function checkRateLimit(prNumber, rateLimitConfig = {}) {
 }
 
 /**
- * Check if a PR is still open. Returns false if merged/closed.
- * On failure (network, timeout), returns true to avoid blocking flushes.
- * @param {number} prNumber
- * @param {string} [cwd]
- * @returns {boolean}
- */
-function isPrOpen(prNumber, cwd = process.cwd()) {
-  try {
-    const state = execSync(`gh pr view ${prNumber} --json state --jq .state`, {
-      cwd,
-      timeout: 5000,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return state === 'OPEN';
-  } catch {
-    return true; // Assume open on error to avoid dropping prompts
-  }
-}
-
-/**
- * Add a PR number to the closedPrs tracking array in session state.
- * @param {number} prNumber
- */
-function updateClosedPrs(prNumber) {
-  const sessionFile = join(STATE_DIR, 'codepresso-session.json');
-  try {
-    const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
-    if (!session.closedPrs) session.closedPrs = [];
-    if (!session.closedPrs.includes(prNumber)) {
-      session.closedPrs.push(prNumber);
-    }
-    // If the closed PR matches the session's current PR, clear it
-    if (session.prNumber === prNumber) {
-      session.prNumber = null;
-      session.prClosed = true;
-    }
-    writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
-  } catch {
-    // Session file missing — no-op
-  }
-}
-
-/**
- * Clear cached prNumber in session file. If prNumber is given, only clear if it matches.
- * @param {number} [prNumber]
- */
-function clearSessionPr(prNumber) {
-  if (prNumber) {
-    updateClosedPrs(prNumber);
-  } else {
-    // Legacy behavior: clear whatever PR is in session
-    const sessionFile = join(STATE_DIR, 'codepresso-session.json');
-    try {
-      const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
-      session.prNumber = null;
-      session.prClosed = true;
-      writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
-    } catch {
-      // no-op
-    }
-  }
-}
-
-/**
  * Score prompts and post to PR via detached process.
  * @param {Array<{ timestamp: string, prompt: string }>} entries
  * @param {{ branch: string, sessionId?: string, cwd?: string }} meta
@@ -400,81 +289,38 @@ export function flushIfReady(session, config = {}) {
   const shouldFlush = entries.length >= maxSize || elapsed >= intervalMs;
 
   if (!shouldFlush) return;
-
-  // Read current session state for closedPrs
-  let currentSession;
-  try {
-    const sessionFile = join(STATE_DIR, 'codepresso-session.json');
-    currentSession = JSON.parse(readFileSync(sessionFile, 'utf-8'));
-  } catch {
-    currentSession = {};
-  }
-
-  const { groups, pending } = groupByPr(entries, {
-    branch: session.branch,
-    prNumber: session.prNumber,
-    closedPrs: currentSession.closedPrs || [],
-  });
-
-  if (groups.size === 0 && pending.length === 0) {
-    clearBatch();
-    clearTimerState();
-    return;
-  }
-
   if (!acquireLock()) return;
+
   try {
     const rateLimitConfig = config.rateLimit || {};
-    const prLabelsConfig = loadConfig().prLabels || {};
 
-    // Read sidecar once (pre-PR planning prompts queued before this PR existed)
-    const sidecarEntries = readSidecar(session.branch);
-    let sidecarFlushed = false;
-
-    for (const [prNumber, prEntries] of groups) {
-      if (!isPrOpen(prNumber, session.gitRoot)) {
-        updateClosedPrs(prNumber);
-        continue;
-      }
-
-      if (!checkRateLimit(prNumber, rateLimitConfig)) {
-        continue;
-      }
-
-      // Merge sidecar into first successful flush only
-      const allEntries = (!sidecarFlushed && sidecarEntries.length > 0)
-        ? [...sidecarEntries, ...prEntries]
-        : prEntries;
-
-      scoreAndPost(allEntries, {
-        branch: prEntries[0].branch || session.branch,
-        sessionId: session.sessionId,
-        cwd: session.gitRoot,
-      }, prNumber);
-
-      sidecarFlushed = true;
-
-      if (prLabelsConfig.enabled !== false) {
-        applyPrLabels(prNumber, prLabelsConfig.labels, session.gitRoot);
-      }
+    if (!checkRateLimit(session.prNumber, rateLimitConfig)) {
+      return;
     }
 
-    // Clear sidecar only after it has been included in a flush
-    if (sidecarFlushed && sidecarEntries.length > 0) {
+    // Merge sidecar entries (pre-PR planning prompts)
+    const sidecarEntries = readSidecar(session.branch);
+    const allEntries = sidecarEntries.length > 0
+      ? [...sidecarEntries, ...entries]
+      : entries;
+
+    scoreAndPost(allEntries, {
+      branch: session.branch,
+      sessionId: session.sessionId,
+      cwd: session.gitRoot,
+    }, session.prNumber);
+
+    if (sidecarEntries.length > 0) {
       clearSidecar(session.branch);
     }
 
-    // Write back pending entries or clear batch
-    if (pending.length > 0) {
-      writeBatch(pending);
-    } else {
-      clearBatch();
+    const prLabelsConfig = loadConfig().prLabels || {};
+    if (prLabelsConfig.enabled !== false) {
+      applyPrLabels(session.prNumber, prLabelsConfig.labels, session.gitRoot);
     }
 
-    // Only clear timer when all entries are flushed
-    if (pending.length === 0) {
-      clearTimerState();
-    }
+    clearBatch();
+    clearTimerState();
   } finally {
     releaseLock();
   }
@@ -490,25 +336,10 @@ export function forceFlush(session) {
   const entries = readBatch();
   if (entries.length === 0) return;
 
-  // Read current session state for closedPrs
-  let currentSession;
-  try {
-    const sessionFile = join(STATE_DIR, 'codepresso-session.json');
-    currentSession = JSON.parse(readFileSync(sessionFile, 'utf-8'));
-  } catch {
-    currentSession = {};
-  }
-
-  const { groups, pending } = groupByPr(entries, {
-    branch: session.branch,
-    prNumber: session.prNumber,
-    closedPrs: currentSession.closedPrs || [],
-  });
-
-  // At session end with no resolvable PR: persist pending to sidecar for future sessions
-  if (groups.size === 0) {
-    if (pending.length > 0 && session.branch) {
-      writeSidecar(pending, session.branch);
+  // No PR yet — persist to sidecar for future sessions
+  if (!session.prNumber) {
+    if (session.branch) {
+      writeSidecar(entries, session.branch);
     }
     clearBatch();
     clearTimerState();
@@ -516,50 +347,35 @@ export function forceFlush(session) {
   }
 
   if (!acquireLock()) return;
+
   try {
     const rateLimitConfig = loadConfig().rateLimit || {};
-    const prLabelsConfig = loadConfig().prLabels || {};
 
-    // Read sidecar once (pre-PR planning prompts queued before this PR existed)
+    if (!checkRateLimit(session.prNumber, rateLimitConfig)) {
+      clearBatch();
+      clearTimerState();
+      return;
+    }
+
+    // Merge sidecar entries (pre-PR planning prompts)
     const sidecarEntries = readSidecar(session.branch);
-    let sidecarFlushed = false;
+    const allEntries = sidecarEntries.length > 0
+      ? [...sidecarEntries, ...entries]
+      : entries;
 
-    for (const [prNumber, prEntries] of groups) {
-      if (!isPrOpen(prNumber, session.gitRoot)) {
-        updateClosedPrs(prNumber);
-        continue;
-      }
+    scoreAndPost(allEntries, {
+      branch: session.branch,
+      sessionId: session.sessionId,
+      cwd: session.gitRoot,
+    }, session.prNumber);
 
-      if (!checkRateLimit(prNumber, rateLimitConfig)) {
-        continue;
-      }
-
-      // Merge sidecar into first successful flush only
-      const allEntries = (!sidecarFlushed && sidecarEntries.length > 0)
-        ? [...sidecarEntries, ...prEntries]
-        : prEntries;
-
-      scoreAndPost(allEntries, {
-        branch: prEntries[0].branch || session.branch,
-        sessionId: session.sessionId,
-        cwd: session.gitRoot,
-      }, prNumber);
-
-      sidecarFlushed = true;
-
-      if (prLabelsConfig.enabled !== false) {
-        applyPrLabels(prNumber, prLabelsConfig.labels, session.gitRoot);
-      }
-    }
-
-    // Persist any remaining pending entries to sidecar for future sessions
-    if (pending.length > 0 && session.branch) {
-      writeSidecar(pending, session.branch);
-    }
-
-    // Clear sidecar only after it has been included in a flush
-    if (sidecarFlushed && sidecarEntries.length > 0) {
+    if (sidecarEntries.length > 0) {
       clearSidecar(session.branch);
+    }
+
+    const prLabelsConfig = loadConfig().prLabels || {};
+    if (prLabelsConfig.enabled !== false) {
+      applyPrLabels(session.prNumber, prLabelsConfig.labels, session.gitRoot);
     }
 
     clearBatch();
@@ -591,8 +407,7 @@ export function postGitComment(prNumber, commit, cwd = process.cwd()) {
 
 /**
  * Apply labels to a PR (fire-and-forget).
- * Tracks per-PR to avoid re-applying: labelsApplied is { [prNumber]: true }.
- * Backward compat: boolean `true` treated as "applied for original PR".
+ * Tracks via simple boolean to avoid re-applying this session.
  * @param {number} prNumber
  * @param {string[]} labels
  * @param {string} [cwd]
@@ -603,16 +418,9 @@ export function applyPrLabels(prNumber, labels, cwd = process.cwd()) {
   const sessionFile = join(STATE_DIR, 'codepresso-session.json');
   try {
     const session = JSON.parse(readFileSync(sessionFile, 'utf-8'));
+    if (session.labelsApplied) return; // Already applied this session
 
-    // Backward compat: migrate boolean to empty map (treat true as "unknown PR already labeled")
-    if (typeof session.labelsApplied === 'boolean') {
-      session.labelsApplied = session.labelsApplied ? { _legacy: true } : {};
-    }
-    if (!session.labelsApplied) session.labelsApplied = {};
-
-    if (session.labelsApplied[prNumber]) return; // Already applied for this PR
-
-    session.labelsApplied[prNumber] = true;
+    session.labelsApplied = true;
     writeFileSync(sessionFile, JSON.stringify(session, null, 2), 'utf-8');
   } catch {
     return;
