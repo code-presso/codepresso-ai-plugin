@@ -10,7 +10,6 @@ import { loadConfig } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { postGitComment } from './lib/pr-comment.mjs';
 import { recordGitCommit, recordGitPush } from './lib/analytics.mjs';
-import { getCurrentBranch } from './lib/git-utils.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -155,15 +154,6 @@ async function main() {
 
     let session = readSession();
     if (!session) {
-      process.stdout.write(JSON.stringify({ continue: true }));
-      return;
-    }
-
-    // Branch-aware: check if current branch matches session branch
-    const currentBranch = getCurrentBranch(session.gitRoot);
-    if (currentBranch && session.branch && currentBranch !== session.branch) {
-      // Branch differs from session — session.prNumber belongs to a different branch, skip
-      log.debug(`Branch mismatch: session=${session.branch}, current=${currentBranch} — skipping git comment`);
       process.stdout.write(JSON.stringify({ continue: true }));
       return;
     }
