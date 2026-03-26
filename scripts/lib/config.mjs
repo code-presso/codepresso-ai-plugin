@@ -71,6 +71,8 @@ const DEFAULT_CONFIG = {
       'yes', 'no', 'sure', 'thanks', 'thx', 'ty',
       'push', 'pull', 'done', 'next', 'go', 'run',
       'lgtm', '좋아', 'ㄱㄱ', 'y', 'n', 'continue', 'proceed',
+      'also', 'right', 'got it', 'alright', 'sounds good', 'go ahead',
+      '그래', '맞아', '알겠어', '해줘', 'ㅇㅋ',
     ],
   },
   epicDocs: {
@@ -90,7 +92,10 @@ const DEFAULT_CONFIG = {
     dailyGreeting: true,
     spaceId: null,                // Google Chat space ID (e.g., '<SPACE_ID>')
   },
-  excludePatterns: ['^/oh-my-claudecode:', '^(cancelomc|stopomc)$'],
+  excludePatterns: [
+    '^/',                              // All slash commands (/help, /status, /commit, etc.)
+    '(executed|registered)',           // System execution messages
+  ],
   debug: false,
 };
 
