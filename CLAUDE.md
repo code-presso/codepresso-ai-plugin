@@ -61,36 +61,20 @@ codepresso-plugin/
 ### Data Flow
 
 ```
-User Prompt → UserPromptSubmit hook → detect branch change → redact secrets → enriched batch entry (.jsonl)
-                                          ↓                       ↑ { timestamp, prompt, sessionId, branch, prNumber }
-                                     branch changed?
-                                     → update session, reset notionContextShown, spawn PR resolver
-                                          ↓ (interval/size trigger + rate limit check)
-                                     groupByPr() → per-PR flush
+User Prompt → UserPromptSubmit hook → skip if main branch → redact secrets → batch entry (.jsonl)
+                                          ↓ { timestamp, prompt, sessionId }
+                                     (interval/size trigger + rate limit check)
                                           ↓
-                                     score-and-post.mjs (detached, per PR group)
+                                     score-and-post.mjs (detached)
                                           ↓
-                                     API scoring → PR comment via `gh` → apply PR labels (per-PR, first flush)
+                                     API scoring → PR comment via `gh` → apply PR labels
 
 Session Start → SessionStart hook → resolve gitRoot → detect branch → find PR → fetch Notion tasks → daily greeting check → cache state
-Daily Greeting → first session of day? → read ~/.codepresso/daily-greeting.json → spawn daily-chat-greeting.mjs (detached)
-              → format in-progress tasks → gws chat spaces messages create → update lastDate
-First Tool  → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save to branch-keyed file
-Branch Switch → user-prompt-logger detects → reset notionContextShown → PreToolUse re-injects picker for new branch
-PR Create   → PreToolUse hook → detect `gh pr create` → read task for current branch → enforce "[TSK-XXXX] title"
-PR Create   → PostToolUse:Bash hook → extract PR number from output URL → update session.prNumber
-              → spawn backfill-flush.mjs → flush batch + sidecar (pre-PR planning prompts) to new PR
-Git Commit  → PostToolUse:Bash hook → verify branch matches session → detached `gh pr comment`
-Session End → Stop hook → groupByPr() → force-flush per PR group
-              → pending entries (no PR) written to branch sidecar (codepresso-prepr-{branch}.jsonl)
-Next Session (same branch, PR now exists) → SessionStart detects sidecar → spawn backfill-flush.mjs
-              → sidecar entries prepended to first flush → cleared after successful post
-
-Sprint Start → SessionStart hook → parallel fetch [tasks, sprint+epics] → in-memory cross-reference → cache in session
-First Tool  → PreToolUse hook → hierarchical picker (grouped by epic) → user selects task → save with epicId/epicUniqueId
-PR Create   → PreToolUse hook → enforce "[GP-XXXX][TSK-XXXX] title" format (epic-aware)
-PR Merge    → PostToolUse:Bash hook → detect `gh pr merge` → spawn handle-merge-transition.mjs
-              → mark task "완료" (status type) → check epic tasks → auto-mark epic "배포 완료" (select type)
+Session End → Stop hook → force-flush → if PR exists: post (merging sidecar) → if no PR: write to sidecar
+PR Create → PostToolUse:Bash hook → extract PR number → update session → spawn backfill-flush.mjs
+Git Commit → PostToolUse:Bash hook → verify PR exists → detached `gh pr comment`
+First Tool → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save to file
+PR Merge → PostToolUse:Bash hook → detect `gh pr merge` → spawn handle-merge-transition.mjs
 ```
 
 ---
@@ -110,7 +94,7 @@ Prompts are appended to `.omc/state/codepresso-batch.jsonl` as atomic line write
 `defaults ← ~/.codepresso/config.json ← .codepresso.json`. Merge is **shallow per-section**: project values override global values within each top-level key but don't replace entire sections. See `scripts/lib/config.mjs:mergeSections()`.
 
 ### 5. Notion–GitHub Auto-Linking via PR Title
-The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) from task pages and enforces a `[UNIQUE-ID] description` PR title format. When `gh pr create` is detected without the Notion ID prefix, the hook **blocks** the command and instructs Claude to re-run with the correct format. This enables Notion's GitHub integration to automatically link PRs to tasks.
+The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) from task pages and enforces a `[UNIQUE-ID] description` PR title format. When `gh pr create` is detected without the Notion ID prefix, the hook **blocks** the command and instructs Claude to re-run with the correct format. It reads the selected task to determine the required prefix. This enables Notion's GitHub integration to automatically link PRs to tasks.
 
 ### 6. OMC Coexistence
 - State files: all prefixed `codepresso-*` in `.omc/state/`
@@ -120,28 +104,6 @@ The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) fr
 
 ### 7. Monorepo / Submodule Support
 The plugin resolves `gitRoot` via `git rev-parse --show-toplevel` at session start and passes it to all git/gh operations. When the top-level repo is on a main branch (no PR), the session-start hook enumerates submodules and checks each for non-main branches with open PRs. The first match becomes the session's primary PR context (`gitRoot`, `branch`, `prNumber`), enabling prompt logging and git activity tracking for submodule PRs. The `activeSubmodule` field in session state tracks which submodule was selected.
-
-### 8. Multi-PR Session Handling
-A single Claude session can span multiple PRs when the user switches branches. The plugin detects branch changes and routes prompts to the correct PR:
-
-**Branch-change detection** (`user-prompt-logger.mjs`): On each prompt, calls `getCurrentBranch()` (~50ms) and compares to `session.branch`. On mismatch: updates session state, clears `prNumber` (triggers lazy PR detection), resets `notionContextShown` (re-triggers task picker), and spawns a detached PR resolver for the new branch.
-
-**Enriched batch entries**: Each batch entry now carries `{ branch, prNumber }` alongside `timestamp`, `prompt`, `sessionId`. Entries are batched even with null `prNumber` (backfilled during flush).
-
-**Group-flush** (`pr-comment.mjs:groupByPr()`): At flush time, entries are grouped by `prNumber`. Backfill rules:
-- Entry has explicit `prNumber` → grouped directly
-- Entry branch matches session branch, null `prNumber` → backfilled from `session.prNumber`
-- Legacy entry (no branch/prNumber fields) → falls back to `session.prNumber`
-- Entry for a closed PR (`session.closedPrs`) → discarded
-- Unresolvable entries → kept as "pending" (written back to batch file, not lost)
-
-**Per-PR labels**: `labelsApplied` changed from `boolean` → `{ [prNumber]: true }` map. Backward compat: boolean `true` is treated as `{ _legacy: true }`.
-
-**Closed PR tracking**: When `isPrOpen()` returns false during flush, the PR is added to `session.closedPrs[]` array. Future entries for that PR are silently discarded.
-
-**Branch-keyed Notion tasks** (`pre-tool-notion-inject.mjs`): The selected task file changed from singleton `{ id, title, uniqueId }` to branch-keyed map `{ "branch-name": { id, title, uniqueId } }`. PR title enforcement reads the task for the current branch. Legacy singleton format is auto-migrated on read.
-
-**Branch-aware git comments** (`post-tool-git-watcher.mjs`): Before posting, checks `getCurrentBranch()` against `session.branch`. Skips the comment if branches differ (the session's `prNumber` belongs to a different branch).
 
 ### 9. Daily Google Chat Greeting
 On the first Claude session of each day, the plugin sends a Google Chat message to a configured space with the user's in-progress Notion tasks. Detection uses `~/.codepresso/daily-greeting.json` which stores `{ lastDate: "YYYY-MM-DD" }`. The greeting is sent via a detached process (`daily-chat-greeting.mjs`) using the `gws` CLI (Google Workspace CLI) with OAuth, so messages appear as the user's profile (not a bot). The message groups tasks into "진행 중" (in progress) and "대기 중" (waiting) sections. Requires `googleChat.enabled: true` and `googleChat.spaceId` in config. The `gws` CLI must be authenticated with `chat.messages.create` scope.
@@ -183,15 +145,15 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Input:** `hookInput.toolName` and `hookInput.toolInput` from stdin
 - **Output:** `{ continue: true/false, hookSpecificOutput?: { hookEventName, additionalContext } }`
 - **Behavior 1 — Task Picker:** On first tool use, injects cached Notion tasks as `additionalContext` with instructions for Claude to present an interactive `AskUserQuestion` picker. Filters out completed tasks, sorts by status. Includes Notion unique IDs (e.g., `TSK-9945`) when available.
-- **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads the branch-keyed selected task from `.omc/state/codepresso-selected-task.json` for the current `session.branch`. If a task with a `uniqueId` is selected for that branch and the PR title doesn't include it, **blocks** the command (`continue: false`) and instructs Claude to prefix the title with the Notion ID for auto-linking.
-- **Side effects:** Writes `notionContextShown` flag to session file; reads branch-keyed selected task file
+- **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads the selected task from `.omc/state/codepresso-selected-task.json`. If a task with a `uniqueId` is selected and the PR title doesn't include it, **blocks** the command (`continue: false`) and instructs Claude to prefix the title with the Notion ID for auto-linking.
+- **Side effects:** Writes `notionContextShown` flag to session file; reads selected task file
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
 ### UserPromptSubmit (`scripts/user-prompt-logger.mjs`)
 - **Timeout:** 3s (CRITICAL — must be fast)
 - **Input:** `hookInput.userPrompt` from stdin
 - **Output:** `{ continue: true }` — never adds `additionalContext`
-- **Side effects:** Detects branch changes via `getCurrentBranch()` (~50ms). On branch switch: updates session (branch, prNumber=null, notionContextShown=false), spawns detached PR resolver. Appends enriched entries `{ timestamp, prompt, sessionId, branch, prNumber }` to `.omc/state/codepresso-batch.jsonl`. May trigger grouped flush via `flushIfReady()`.
+- **Side effects:** Appends entries `{ timestamp, prompt, sessionId }` to `.omc/state/codepresso-batch.jsonl`. May trigger flush via `flushIfReady()`.
 - **Failure mode:** Silent
 
 ### PostToolUse:Bash (`scripts/post-tool-git-watcher.mjs`)
@@ -199,7 +161,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Matcher:** `Bash` only
 - **Input:** `toolInput.command` and `toolOutput` from stdin
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Checks `getCurrentBranch()` against `session.branch` — skips comment if branches differ. Spawns detached `gh pr comment` for git operations when branch matches. Detects `gh pr create` (checked **before** the `prNumber` guard): extracts PR number from output URL, updates `session.prNumber`, spawns `backfill-flush.mjs` to post pre-PR planning prompts. Also detects `gh pr merge` commands and spawns `handle-merge-transition.mjs` as a detached process for Notion status transitions.
+- **Side effects:** Spawns detached `gh pr comment` for git operations when a PR exists. Detects `gh pr create`: extracts PR number from output URL, updates `session.prNumber`, spawns `backfill-flush.mjs` to post pre-PR planning prompts. Also detects `gh pr merge` commands and spawns `handle-merge-transition.mjs` as a detached process for Notion status transitions.
 - **Failure mode:** Silent
 
 ### Stop (`scripts/session-end.mjs`)
@@ -217,9 +179,9 @@ All state lives in `.omc/state/` with `codepresso-` prefix:
 
 | File | Format | Purpose |
 |------|--------|---------|
-| `codepresso-session.json` | JSON | Cached gitRoot, activeSubmodule, branch, PR number, session ID, Notion tasks (with uniqueId), `labelsApplied` (per-PR map `{ [prNumber]: true }`), `closedPrs` (array of merged/closed PR numbers), `sprintContext` (sprint/epic hierarchy), `sprintDatabases` (resolved DB IDs) |
-| `codepresso-selected-task.json` | JSON | Branch-keyed Notion task map (`{ "branch-name": { id, title, uniqueId, epicId, epicUniqueId } }`). Legacy singleton format auto-migrated on read. |
-| `codepresso-batch.jsonl` | JSONL | Pending prompt queue (redacted). Each entry: `{ timestamp, prompt, sessionId, branch, prNumber }`. Legacy entries without branch/prNumber are supported via fallback. |
+| `codepresso-session.json` | JSON | Cached gitRoot, activeSubmodule, branch, PR number, session ID, Notion tasks (with uniqueId), `labelsApplied` (boolean), `sprintContext` (sprint/epic hierarchy), `sprintDatabases` (resolved DB IDs) |
+| `codepresso-selected-task.json` | JSON | Selected Notion task (`{ id, title, uniqueId, epicId, epicUniqueId }`) |
+| `codepresso-batch.jsonl` | JSONL | Pending prompt queue (redacted). Each entry: `{ timestamp, prompt, sessionId }`. |
 | `codepresso-batch-timer.json` | JSON | Flush timer (`{ startedAt: epoch_ms }`) |
 | `codepresso-flush-*.json` | JSON | Temporary scoring payloads (auto-cleaned) |
 | `codepresso-flush.lock` | Text | Atomic flush lock (PID, stale after 30s) |
