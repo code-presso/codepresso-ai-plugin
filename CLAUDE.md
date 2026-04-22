@@ -383,7 +383,8 @@ echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1
 | `ANTHROPIC_API_KEY` env var | No | Prompt quality scoring (graceful fallback) |
 | Notion API key | No | Notion task sync features |
 | AWS CLI | No | Deploy features (ECS, CodePipeline) |
-| `gws` CLI | No | Daily greeting messages (Google Workspace CLI with OAuth, sends as user profile) |
+| `gws` CLI | No | Daily Google Chat bookends (morning greeting + evening summary; OAuth sends as user profile) |
+| `claude` CLI | No | Morning motivational phrase and evening Haiku-narrated summary (deterministic fallback if absent) |
 
 ---
 

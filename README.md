@@ -9,6 +9,7 @@ Team workflow plugin for Claude Code — GitHub PR logging, prompt scoring, opti
 - **Git Tracking**: Detects `git commit` and `git push` operations, logs them to the associated PR
 - **Deploy Integration** (optional): Trigger deployments from Claude Code — ECS, CodePipeline, or custom
 - **Notion Task Picker**: Pick your Notion task at session start — auto-updates status, creates branch, and enforces PR title format for auto-linking
+- **Daily Google Chat Bookends** (Mon–Fri): Morning greeting on first session with in-progress tasks + open PRs + review-requested PRs; 18:00 evening summary narrating today's commits, merged/closed PRs, and in-progress tasks via Claude Haiku
 - **OMC Compatible**: Runs alongside oh-my-claudecode with zero conflicts
 - **Monorepo / Submodule Support**: Automatically detects submodule PRs when working from a monorepo root
 
@@ -191,6 +192,43 @@ When Claude Code runs `git commit` or `git push`, Codepresso posts:
 **Time:** 2026-02-09T14:36:02Z
 ```
 
+### Daily Google Chat Bookends (Mon–Fri, optional)
+
+Two scheduled messages per workday, delivered to a configured Google Chat space as the authenticated user (via `gws` CLI):
+
+**Morning greeting** — on first weekday Claude session of the day:
+- In-progress Notion tasks
+- Your open PRs (authored)
+- PRs awaiting your review
+- A Claude Haiku–generated motivational one-liner
+
+**Evening summary** — 18:00 Mon–Fri (session cron `3 18 * * 1-5 /codepresso:daily-summary`):
+- Today's commits (`git log --author=<you> --since=midnight`)
+- Today's merged PRs (`gh search prs --author @me --merged-at <today>`)
+- Today's non-merged closed PRs
+- Still-in-progress Notion tasks
+- 2–4 sentence narrative summary via `claude -p --model haiku` (falls back to a deterministic template if `claude` is unavailable)
+
+Enable via `codepresso:setup` or by adding to `~/.codepresso/config.json`:
+
+```json
+{
+  "googleChat": {
+    "enabled": true,
+    "dailyGreeting": true,
+    "spaceId": "AAAAxxxxxxx"
+  }
+}
+```
+
+Manual triggers: `codepresso:daily-chat` (morning) and `codepresso:daily-summary` (evening) — both work any day of the week. Preview the evening message without sending:
+
+```bash
+CODEPRESSO_DRY_RUN=1 node scripts/daily-chat-summary.mjs
+```
+
+**Requirements:** `gws` CLI authenticated with `chat.messages.create` scope. `claude` CLI on PATH for the Haiku-quality evening summary (optional — falls back otherwise).
+
 ### Deploy Integration (Optional)
 
 Each team configures their own deploy strategy. Deploy is **disabled by default**.
@@ -231,6 +269,8 @@ Then say "deploy to staging" in Claude Code.
 | `codepresso:log` | "codepresso log" | Manually flush prompts with scoring to PR |
 | `codepresso:dashboard` | "codepresso dashboard" | Team analytics dashboard |
 | `codepresso:notion-sync` | "sync notion tasks" | Query/update Notion database tasks |
+| `codepresso:daily-chat` | "daily chat", "send morning summary" | Manually send morning Google Chat greeting |
+| `codepresso:daily-summary` | "daily summary", "end of day summary" | Manually send evening Google Chat summary (also fired by 18:00 Mon–Fri cron) |
 | `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
 
 ## Notion Integration
@@ -277,6 +317,8 @@ Codepresso is designed to run alongside oh-my-claudecode without conflicts:
 - `gh` CLI installed and authenticated (`gh auth login`)
 - Notion API key (optional, for Notion features)
 - AWS CLI configured (optional, for deploy features)
+- `gws` CLI authenticated with `chat.messages.create` scope (optional, for daily Google Chat bookends)
+- `claude` CLI on PATH (optional, for Haiku-narrated evening summaries)
 
 ## Directory Structure
 
@@ -297,12 +339,14 @@ codepresso-plugin/
 │   │   ├── logger.mjs             # Debug logger
 │   │   ├── analytics.mjs          # Analytics persistence
 │   │   └── notion-tasks.mjs       # Notion task fetcher + unique ID extraction
-│   ├── session-start.mjs          # SessionStart: branch/PR detection + Notion task fetch
+│   ├── session-start.mjs          # SessionStart: branch/PR detection + Notion task fetch + weekday morning greeting spawn
 │   ├── pre-tool-notion-inject.mjs # PreToolUse: task picker + PR title enforcement
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit: batch prompts silently
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit/push tracking
 │   ├── session-end.mjs            # Stop: force-flush remaining batch
 │   ├── score-and-post.mjs         # Detached scorer + poster
+│   ├── daily-chat-greeting.mjs    # Morning Google Chat greeting (detached): tasks + open PRs + review-requested PRs
+│   ├── daily-chat-summary.mjs     # Evening Google Chat summary: commits + closed PRs + tasks, narrated by claude -p
 │   └── manual-flush.mjs           # CLI: on-demand scored flush to PR
 ├── skills/
 │   ├── setup/SKILL.md             # Setup wizard
@@ -310,6 +354,8 @@ codepresso-plugin/
 │   ├── log/SKILL.md               # Manual PR summary posting
 │   ├── dashboard/SKILL.md         # Team analytics dashboard
 │   ├── notion-sync/SKILL.md       # Notion task sync
+│   ├── daily-chat/SKILL.md        # Morning Google Chat greeting (manual trigger)
+│   ├── daily-summary/SKILL.md     # Evening Google Chat summary (manual or 18:00 Mon–Fri cron)
 │   └── deploy/SKILL.md            # Deploy trigger (optional)
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/notion-server.mjs          # Notion MCP server (5 tools)
