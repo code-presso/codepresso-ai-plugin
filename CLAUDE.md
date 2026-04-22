@@ -30,7 +30,8 @@ codepresso-plugin/
 │   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher with PROPERTY_TYPES
 │   │   └── status-transitions.mjs # Task/Epic status transitions with Notion API
 │   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, daily greeting, cache state
-│   ├── daily-chat-greeting.mjs   # Detached process: send daily Google Chat greeting with Notion tasks
+│   ├── daily-chat-greeting.mjs   # Detached process: send weekday morning Google Chat greeting (Notion tasks + GitHub PRs)
+│   ├── daily-chat-summary.mjs     # Evening (18:00) summary: today's commits + merged/closed PRs + in-progress tasks, Claude-summarized
 │   ├── user-prompt-logger.mjs     # UserPromptSubmit hook: batch prompts silently
 │   ├── pre-tool-notion-inject.mjs # PreToolUse hook: task picker + PR title enforcement
 │   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash hook: detect git commit/push
@@ -48,7 +49,8 @@ codepresso-plugin/
 │   ├── sprint-dashboard/SKILL.md  # Sprint progress dashboard
 │   ├── sprint-retro/SKILL.md      # Sprint retrospective report
 │   ├── generate-epic/SKILL.md    # Epic PRD document generation
-│   └── daily-chat/SKILL.md      # Daily Google Chat greeting (manual trigger)
+│   ├── daily-chat/SKILL.md      # Morning Google Chat greeting (manual trigger)
+│   └── daily-summary/SKILL.md   # Evening Google Chat summary (manual or 18:00 cron trigger)
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing 9 Notion API tools (5 base + 4 sprint)
@@ -69,7 +71,8 @@ User Prompt → UserPromptSubmit hook → skip if main branch → redact secrets
                                           ↓
                                      API scoring → PR comment via `gh` → apply PR labels
 
-Session Start → SessionStart hook → resolve gitRoot → detect branch → find PR → fetch Notion tasks → daily greeting check → cache state
+Session Start → SessionStart hook → resolve gitRoot → detect branch → find PR → fetch Notion tasks → (Mon-Fri + first-of-day) spawn daily-chat-greeting → cache state
+Weekday 18:03 (session cron) → `/codepresso:daily-summary` → daily-chat-summary.mjs → gather commits/PRs/Notion → claude -p summary → gws send
 Session End → Stop hook → force-flush → if PR exists: post (merging sidecar) → if no PR: write to sidecar
 PR Create → PostToolUse:Bash hook → extract PR number → update session → spawn backfill-flush.mjs
 Git Commit → PostToolUse:Bash hook → verify PR exists → detached `gh pr comment`
@@ -105,8 +108,26 @@ The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) fr
 ### 7. Monorepo / Submodule Support
 The plugin resolves `gitRoot` via `git rev-parse --show-toplevel` at session start and passes it to all git/gh operations. When the top-level repo is on a main branch (no PR), the session-start hook enumerates submodules and checks each for non-main branches with open PRs. The first match becomes the session's primary PR context (`gitRoot`, `branch`, `prNumber`), enabling prompt logging and git activity tracking for submodule PRs. The `activeSubmodule` field in session state tracks which submodule was selected.
 
-### 9. Daily Google Chat Greeting
-On the first Claude session of each day, the plugin sends a Google Chat message to a configured space with the user's in-progress Notion tasks. Detection uses `~/.codepresso/daily-greeting.json` which stores `{ lastDate: "YYYY-MM-DD" }`. The greeting is sent via a detached process (`daily-chat-greeting.mjs`) using the `gws` CLI (Google Workspace CLI) with OAuth, so messages appear as the user's profile (not a bot). The message groups tasks into "진행 중" (in progress) and "대기 중" (waiting) sections. Requires `googleChat.enabled: true` and `googleChat.spaceId` in config. The `gws` CLI must be authenticated with `chat.messages.create` scope.
+### 9. Daily Google Chat Bookends (Mon–Fri)
+
+The plugin sends two Google Chat messages per workday to the configured space, both as the authenticated user (not a bot) via the `gws` CLI.
+
+**Morning greeting (`daily-chat-greeting.mjs`)** — first weekday session of the day:
+- Triggered by `session-start.mjs` when `isWeekday() && isFirstSessionOfDay() && notionTasks`
+- Daily detection: `~/.codepresso/daily-greeting.json` (`{ lastDate: "YYYY-MM-DD" }`). `lastDate` is only updated after a fire, so a Monday session still fires even if the previous `lastDate` was Friday.
+- Weekday guard: `getDay() ∈ {1..5}`. Sat/Sun sessions never spawn the greeting and do not update `lastDate`.
+- Content: three sections — in-progress Notion tasks, my open PRs (`gh search prs --author @me --state open`), PRs awaiting my review (`gh search prs --review-requested @me --state open`). Runs in `gitRoot` passed from session-start. Plus a Claude-generated (Haiku) motivational one-liner.
+
+**Evening summary (`daily-chat-summary.mjs`)** — Mon–Fri at 18:03:
+- Scheduled by a session cron (`3 18 * * 1-5`) that fires `/codepresso:daily-summary`, which runs the script. Session-only — cron lives for the Claude session and auto-expires after 7 days.
+- Weekday guard in the script itself as defense-in-depth for manual invocation.
+- Gathers: today's commits (`git log --author=<git user.email> --since=<today 00:00>`), today's merged PRs (`gh search prs --author @me --merged-at <today>`), today's non-merged closed PRs (`gh search prs --author @me --state closed --closed <today>`), still-in-progress Notion tasks.
+- Summarization: pipes a structured prompt to `claude -p --model haiku` for a 2–4 sentence Korean narrative. Falls back to a deterministic template if `claude` fails.
+- Skips sending when there's zero activity (no commits, no closed PRs, no in-progress tasks).
+
+**Config requirements** (same for both): `googleChat.enabled: true`, `googleChat.spaceId` set, `gws` authenticated with `chat.messages.create` scope. Morning additionally needs Notion configured; evening additionally needs `claude` CLI on PATH for quality summary (falls back otherwise).
+
+**Manual triggers**: `codepresso:daily-chat` (morning) and `codepresso:daily-summary` (evening) — both work any day of the week.
 
 ### 10. Pre-PR Prompt Capture — Sidecar Pattern
 Users typically plan before creating a PR. Without special handling, all prompts from the planning phase would be lost because `session.prNumber` is null and `forceFlush` at session end had no PR to post to.

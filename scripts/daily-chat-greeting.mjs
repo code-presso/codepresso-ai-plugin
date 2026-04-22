@@ -37,8 +37,67 @@ function isInProgress(status) {
 }
 
 /**
+ * Fetch the user's open PRs and PRs awaiting their review via `gh`.
+ * Returns `{ authored: [...], reviewRequested: [...] }`. Errors swallowed to [].
+ */
+function fetchGithubPrs(gitRoot) {
+  const opts = { timeout: 8000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] };
+  if (gitRoot) opts.cwd = gitRoot;
+
+  const runJson = (args) => {
+    try {
+      const out = execFileSync('gh', args, opts);
+      return JSON.parse(out.trim() || '[]');
+    } catch {
+      return [];
+    }
+  };
+
+  const fields = 'number,title,url,repository,isDraft';
+  const authored = runJson([
+    'search', 'prs',
+    '--state', 'open',
+    '--author', '@me',
+    '--limit', '20',
+    '--json', fields,
+  ]);
+  const reviewRequested = runJson([
+    'search', 'prs',
+    '--state', 'open',
+    '--review-requested', '@me',
+    '--limit', '20',
+    '--json', fields,
+  ]);
+  return { authored, reviewRequested };
+}
+
+function formatPrLine(pr) {
+  const repo = pr.repository?.nameWithOwner || pr.repository?.name || '';
+  const draft = pr.isDraft ? ' _(draft)_' : '';
+  const prefix = repo ? `${repo}#${pr.number}` : `#${pr.number}`;
+  return `• [${prefix}] ${pr.title}${draft}\n  → ${pr.url}`;
+}
+
+/**
+ * Pick a random fallback phrase based on day-of-year for variety.
+ */
+function fallbackPhrase() {
+  const phrases = [
+    '오늘도 화이팅! 💪',
+    '한 걸음씩 꾸준히, 오늘도 멋진 하루 되세요! 🚀',
+    '좋은 코드는 좋은 하루에서 시작돼요! ☀️',
+    '오늘의 커밋이 내일의 성과가 됩니다! 🎯',
+    '집중해서 하나씩 해결해봐요! 🔥',
+    '작은 진전도 큰 변화의 시작이에요! 🌱',
+    '오늘도 즐겁게 코딩해요! 😊',
+  ];
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  return phrases[dayOfYear % phrases.length];
+}
+
+/**
  * Generate a daily motivational phrase using the local `claude` CLI.
- * Falls back to a simple greeting if the CLI call fails.
+ * Falls back to a day-rotating phrase if the CLI call fails.
  */
 function generateDailyPhrase(taskCount) {
   try {
@@ -51,14 +110,14 @@ function generateDailyPhrase(taskCount) {
     const env = { ...process.env };
     delete env.CLAUDECODE;
     const result = execFileSync('claude', ['-p', prompt, '--model', 'haiku'], {
-      timeout: 15000,
+      timeout: 30000,
       encoding: 'utf-8',
       env,
     });
 
-    return result.trim() || '오늘도 화이팅!';
+    return result.trim() || fallbackPhrase();
   } catch {
-    return '오늘도 화이팅!';
+    return fallbackPhrase();
   }
 }
 
@@ -71,20 +130,21 @@ function notionUrl(pageId) {
 
 /**
  * Format a single task line with Notion link.
+ * Google Chat auto-linkifies plain URLs in text messages.
  */
 function formatTaskLine(t) {
-  if (t.uniqueId && t.id) {
-    return `• <${notionUrl(t.id)}|[${t.uniqueId}]> ${t.title}`;
-  }
   const id = t.uniqueId ? `[${t.uniqueId}] ` : '';
-  return `• ${id}${t.title}`;
+  const link = t.id ? `\n  → ${notionUrl(t.id)}` : '';
+  return `• ${id}${t.title}${link}`;
 }
 
 /**
- * Format the Google Chat message from tasks.
+ * Format the Google Chat message from tasks and GitHub PRs.
  */
-function formatMessage(tasks, displayName) {
+function formatMessage(tasks, prs, displayName) {
   const inProgress = tasks.filter(t => isInProgress(t.status));
+  const authored = prs?.authored || [];
+  const reviewRequested = prs?.reviewRequested || [];
 
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
@@ -98,18 +158,35 @@ function formatMessage(tasks, displayName) {
     lines.push('');
   }
 
-  lines.push(`📋 *${dateStr} (${dayStr})* 진행 중인 작업`);
+  lines.push(`📋 *${dateStr} (${dayStr})* 오늘의 작업 현황`);
   lines.push('');
 
+  lines.push('*진행 중인 작업 (Notion):*');
   if (inProgress.length > 0) {
-    for (const t of inProgress) {
-      lines.push(formatTaskLine(t));
-    }
-    lines.push('');
-    lines.push(`총 ${inProgress.length}개 작업 진행 중`);
+    for (const t of inProgress) lines.push(formatTaskLine(t));
   } else {
-    lines.push('진행 중인 작업이 없습니다.');
+    lines.push('_없음_');
   }
+  lines.push('');
+
+  lines.push('*내가 작성한 열린 PR:*');
+  if (authored.length > 0) {
+    for (const pr of authored) lines.push(formatPrLine(pr));
+  } else {
+    lines.push('_없음_');
+  }
+  lines.push('');
+
+  lines.push('*리뷰 요청 받은 PR:*');
+  if (reviewRequested.length > 0) {
+    for (const pr of reviewRequested) lines.push(formatPrLine(pr));
+  } else {
+    lines.push('_없음_');
+  }
+  lines.push('');
+
+  const summary = `총 작업 ${inProgress.length}개 · 내 PR ${authored.length}개 · 리뷰 대기 ${reviewRequested.length}개`;
+  lines.push(summary);
 
   const phrase = generateDailyPhrase(inProgress.length);
   lines.push('');
@@ -153,13 +230,7 @@ async function main() {
     // ignore
   }
 
-  const { tasks, spaceId, displayName } = payload;
-
-  if (!tasks || tasks.length === 0) {
-    log.info('No tasks to report — skipping greeting');
-    updateLastDate();
-    return;
-  }
+  const { tasks, spaceId, displayName, gitRoot } = payload;
 
   if (!spaceId) {
     log.error('No spaceId configured — skipping greeting');
@@ -167,15 +238,20 @@ async function main() {
     return;
   }
 
-  // Filter out completed tasks
-  const activeTasks = tasks.filter(t => !isCompleted(t.status));
-  if (activeTasks.length === 0) {
-    log.info('All tasks completed — skipping greeting');
+  const activeTasks = (tasks || []).filter(t => !isCompleted(t.status));
+  const prs = fetchGithubPrs(gitRoot);
+
+  const hasContent = activeTasks.length > 0
+    || (prs.authored && prs.authored.length > 0)
+    || (prs.reviewRequested && prs.reviewRequested.length > 0);
+
+  if (!hasContent) {
+    log.info('No tasks or PRs to report — skipping greeting');
     updateLastDate();
     return;
   }
 
-  const message = formatMessage(activeTasks, displayName);
+  const message = formatMessage(activeTasks, prs, displayName);
 
   try {
     const params = JSON.stringify({ parent: `spaces/${spaceId}` });
