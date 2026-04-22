@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createLogger } from './lib/logger.mjs';
+import { sendChatMessage } from './lib/gws.mjs';
 
 const log = createLogger('daily-chat-greeting');
 const GREETING_STATE_FILE = join(homedir(), '.codepresso', 'daily-greeting.json');
@@ -254,16 +255,7 @@ async function main() {
   const message = formatMessage(activeTasks, prs, displayName);
 
   try {
-    const params = JSON.stringify({ parent: `spaces/${spaceId}` });
-    const body = JSON.stringify({ text: message });
-
-    // Use execFileSync to pass args directly without shell escaping issues
-    execFileSync('gws', [
-      'chat', 'spaces', 'messages', 'create',
-      '--params', params,
-      '--json', body,
-    ], { timeout: 15000, stdio: 'ignore' });
-
+    sendChatMessage(spaceId, message);
     log.info(`Daily greeting sent to spaces/${spaceId}`);
   } catch (err) {
     log.error(`Failed to send Google Chat message: ${err.message}`);

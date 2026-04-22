@@ -14,6 +14,7 @@ import { loadConfig } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getGitRoot } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
+import { sendChatMessage } from './lib/gws.mjs';
 
 const log = createLogger('daily-chat-summary');
 
@@ -287,13 +288,7 @@ async function main() {
   }
 
   try {
-    const params = JSON.stringify({ parent: `spaces/${spaceId}` });
-    const body = JSON.stringify({ text: message });
-    execFileSync('gws', [
-      'chat', 'spaces', 'messages', 'create',
-      '--params', params,
-      '--json', body,
-    ], { timeout: 15000, stdio: 'ignore' });
+    sendChatMessage(spaceId, message);
     log.info(`Daily summary sent to spaces/${spaceId}`);
   } catch (err) {
     log.error(`Failed to send Google Chat message: ${err.message}`);
