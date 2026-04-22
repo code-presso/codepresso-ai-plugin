@@ -40,10 +40,15 @@ function isFirstSessionOfDay() {
   }
 }
 
+function isWeekday() {
+  const dow = new Date().getDay();
+  return dow >= 1 && dow <= 5;
+}
+
 /**
  * Spawn the daily Google Chat greeting as a detached process.
  */
-function spawnDailyGreeting(tasks, config) {
+function spawnDailyGreeting(tasks, config, gitRoot) {
   try {
     const spaceId = config.googleChat?.spaceId;
     if (!spaceId) return;
@@ -52,6 +57,8 @@ function spawnDailyGreeting(tasks, config) {
       tasks,
       spaceId,
       displayName: config.notion?.displayName || null,
+      gitRoot: gitRoot || null,
+      githubUsername: config.github?.username || null,
     };
 
     const payloadPath = join(STATE_DIR, `codepresso-greeting-${Date.now()}.json`);
@@ -185,18 +192,19 @@ async function main() {
       // Notion/Sprint fetch failed — skip silently
     }
 
-    // Daily Google Chat greeting (first session of the day)
+    // Daily Google Chat greeting (first weekday session of the day)
     if (
       config.googleChat?.enabled
       && config.googleChat?.dailyGreeting
       && notionTasks
+      && isWeekday()
       && isFirstSessionOfDay()
     ) {
       const inProgressTasks = notionTasks.filter(t => {
         const s = (t.status || '').toLowerCase().trim();
         return s === '진행 중' || s === 'in progress' || s === 'in_progress';
       });
-      spawnDailyGreeting(inProgressTasks, config);
+      spawnDailyGreeting(inProgressTasks, config, gitRoot);
     }
 
     const sessionState = {
