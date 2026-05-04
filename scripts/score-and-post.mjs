@@ -77,7 +77,7 @@ async function main() {
   const body = formatComment(entries, scores, meta, scoringBackend, skippedCount);
 
   // Post to PR via temp file (avoids shell escaping issues with backticks)
-  const bodyFile = join(getStateDir(meta.cwd || process.cwd()), `codepresso-comment-${Date.now()}.md`);
+  const bodyFile = join(getStateDir(meta.gitRoot || meta.cwd || process.cwd()), `codepresso-comment-${Date.now()}.md`);
   try {
     writeFileSync(bodyFile, body, 'utf-8');
     execSync(`gh pr comment ${prNumber} --body-file "${bodyFile}"`, {
