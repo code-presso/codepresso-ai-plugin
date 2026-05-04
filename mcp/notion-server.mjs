@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginRoot = join(__dirname, '..');
 
-if (!existsSync(join(pluginRoot, 'node_modules', '@modelcontextprotocol'))) {
+if (!existsSync(join(pluginRoot, 'node_modules', '@modelcontextprotocol')) ||
+    !existsSync(join(pluginRoot, 'node_modules', '@notionhq'))) {
   try {
     execSync('npm install --no-audit --no-fund', { cwd: pluginRoot, stdio: 'pipe', timeout: 60000 });
   } catch (error) {
@@ -27,6 +28,7 @@ if (!existsSync(join(pluginRoot, 'node_modules', '@modelcontextprotocol'))) {
 const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+const { Client: NotionClient } = await import('@notionhq/client');
 
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -78,84 +80,10 @@ function loadNotionKey() {
   return loadNotionConfig().apiKey || null;
 }
 
-const NOTION_API = 'https://api.notion.com/v1';
-const NOTION_VERSION = '2022-06-28';
-
-/** Transient HTTP status codes worth retrying */
-const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
-const MAX_RETRIES = 3;
-const BASE_DELAY_MS = 500;
-
-/**
- * Make an authenticated request to the Notion API with retry + exponential backoff.
- */
-async function notionFetch(path, method = 'GET', body = null) {
+function getNotionClient() {
   const apiKey = loadNotionKey();
-  if (!apiKey) {
-    throw new Error('Notion API key not configured. Run codepresso:setup first.');
-  }
-
-  let lastError;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const options = {
-        method,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Notion-Version': NOTION_VERSION,
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-      };
-
-      if (body) {
-        options.body = JSON.stringify(body);
-      }
-
-      const response = await fetch(`${NOTION_API}${path}`, options);
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        lastError = new Error(`Notion API error (${response.status}): ${errorBody}`);
-
-        if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_RETRIES) {
-          clearTimeout(timeout);
-          const retryAfter = response.headers.get('retry-after');
-          const delay = retryAfter
-            ? Math.min(parseInt(retryAfter, 10) * 1000, 10000)
-            : BASE_DELAY_MS * Math.pow(2, attempt);
-          log(`Retrying ${method} ${path} after ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES}, status ${response.status})`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-
-        throw lastError;
-      }
-
-      return response.json();
-    } catch (error) {
-      clearTimeout(timeout);
-      lastError = error;
-
-      // Retry on network/abort errors (not on non-retryable HTTP errors)
-      const isNetworkError = error.name === 'AbortError' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
-      if (isNetworkError && attempt < MAX_RETRIES) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-        log(`Retrying ${method} ${path} after ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES}, ${error.name || error.code})`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-
-      throw lastError;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  throw lastError;
+  if (!apiKey) throw new Error('Notion API key not configured. Run codepresso:setup first.');
+  return new NotionClient({ auth: apiKey });
 }
 
 // --- Tool definitions ---
@@ -330,9 +258,6 @@ const TOOLS = [
 // --- Tool handlers ---
 
 async function handleQueryDb(args) {
-  const body = {};
-
-  // Build date window filter (default: last 14 days)
   const notionConfig = loadNotionConfig();
   const syncWindowDays = notionConfig.syncWindowDays ?? 14;
 
@@ -346,25 +271,21 @@ async function handleQueryDb(args) {
     };
   }
 
-  // Combine user filter with date window filter
-  if (args.filter && dateFilter) {
-    body.filter = { and: [args.filter, dateFilter] };
-  } else if (args.filter) {
-    body.filter = args.filter;
-  } else if (dateFilter) {
-    body.filter = dateFilter;
-  }
+  const queryFilter = (() => {
+    if (args.filter && dateFilter) return { and: [args.filter, dateFilter] };
+    if (args.filter) return args.filter;
+    if (dateFilter) return dateFilter;
+    return undefined;
+  })();
 
-  if (args.sorts) body.sorts = args.sorts;
-  body.page_size = args.page_size || 50;
+  const notion = getNotionClient();
+  const result = await notion.databases.query({
+    database_id: args.database_id,
+    filter: queryFilter,
+    sorts: args.sorts,
+    page_size: args.page_size || 50,
+  });
 
-  const result = await notionFetch(
-    `/databases/${args.database_id}/query`,
-    'POST',
-    body
-  );
-
-  // Simplify results for readability
   const pages = (result.results || []).map((page) => ({
     id: page.id,
     url: page.url,
@@ -377,31 +298,31 @@ async function handleQueryDb(args) {
 }
 
 async function handleCreatePage(args) {
-  const body = {
+  const notion = getNotionClient();
+  const result = await notion.pages.create({
     parent: { database_id: args.database_id },
     properties: args.properties,
-  };
-  if (args.children) body.children = args.children;
-
-  const result = await notionFetch('/pages', 'POST', body);
+    children: args.children,
+  });
   return { id: result.id, url: result.url, created_time: result.created_time };
 }
 
 async function handleUpdatePage(args) {
-  const result = await notionFetch(
-    `/pages/${args.page_id}`,
-    'PATCH',
-    { properties: args.properties }
-  );
+  const notion = getNotionClient();
+  const result = await notion.pages.update({
+    page_id: args.page_id,
+    properties: args.properties,
+  });
   return { id: result.id, url: result.url, last_edited_time: result.last_edited_time };
 }
 
 async function handleSearch(args) {
-  const body = { query: args.query };
-  if (args.filter) body.filter = args.filter;
-  body.page_size = args.page_size || 10;
-
-  const result = await notionFetch('/search', 'POST', body);
+  const notion = getNotionClient();
+  const result = await notion.search({
+    query: args.query,
+    filter: args.filter,
+    page_size: args.page_size || 10,
+  });
 
   const pages = (result.results || []).map((page) => ({
     id: page.id,
@@ -417,8 +338,8 @@ async function handleSearch(args) {
 }
 
 async function handleGetUsers(args) {
-  const pageSize = args.page_size || 100;
-  const result = await notionFetch(`/users?page_size=${pageSize}`);
+  const notion = getNotionClient();
+  const result = await notion.users.list({ page_size: args.page_size || 100 });
 
   const users = (result.results || []).map((user) => ({
     id: user.id,
@@ -513,15 +434,14 @@ async function handleSprintProgress(args) {
 }
 
 async function handleUpdateTaskStatus(args) {
-  const apiKey = loadNotionKey();
-  if (!apiKey) throw new Error('Notion API key not configured.');
+  const notion = getNotionClient();
+  const notionConfig = loadNotionConfig();
 
   // Update task status using "status" type (Task DB uses status, not select)
-  await notionFetch(
-    `/pages/${args.task_id}`,
-    'PATCH',
-    { properties: { [PROPERTY_TYPES.task.status.property]: { status: { name: args.new_status } } } }
-  );
+  await notion.pages.update({
+    page_id: args.task_id,
+    properties: { [PROPERTY_TYPES.task.status.property]: { status: { name: args.new_status } } },
+  });
 
   let epicCompleted = false;
   let epicId = null;
@@ -530,27 +450,20 @@ async function handleUpdateTaskStatus(args) {
   // Check epic completion if requested
   if (args.check_epic_completion !== false && args.new_status === '완료') {
     try {
-      // Get task page to find its epic
-      const taskPage = await notionFetch(`/pages/${args.task_id}`);
+      const taskPage = await notion.pages.retrieve({ page_id: args.task_id });
       const epicRelation = taskPage?.properties?.[PROPERTY_TYPES.task.epic.property]?.relation;
       if (epicRelation?.length > 0) {
         epicId = epicRelation[0].id;
 
-        // Get epic page to find all its tasks
-        const epicPage = await notionFetch(`/pages/${epicId}`);
+        const epicPage = await notion.pages.retrieve({ page_id: epicId });
         epicTitle = epicPage?.properties?.[PROPERTY_TYPES.epic.title.property]?.title?.[0]?.plain_text || '(untitled)';
 
-        // Check all tasks' status
-        const notionConfig = loadNotionConfig();
         if (notionConfig.databases?.task) {
-          const taskData = await notionFetch(
-            `/databases/${notionConfig.databases.task}/query`,
-            'POST',
-            {
-              filter: { property: PROPERTY_TYPES.task.epic.property, relation: { contains: epicId } },
-              page_size: 100,
-            }
-          );
+          const taskData = await notion.databases.query({
+            database_id: notionConfig.databases.task,
+            filter: { property: PROPERTY_TYPES.task.epic.property, relation: { contains: epicId } },
+            page_size: 100,
+          });
 
           const allTasks = taskData?.results || [];
           const allDone = allTasks.length > 0 && allTasks.every(t => {
@@ -559,12 +472,10 @@ async function handleUpdateTaskStatus(args) {
           });
 
           if (allDone) {
-            // Update epic using "select" type (Epic DB uses select, not status!)
-            await notionFetch(
-              `/pages/${epicId}`,
-              'PATCH',
-              { properties: { [PROPERTY_TYPES.epic.status.property]: { select: { name: '배포 완료' } } } }
-            );
+            await notion.pages.update({
+              page_id: epicId,
+              properties: { [PROPERTY_TYPES.epic.status.property]: { select: { name: '배포 완료' } } },
+            });
             epicCompleted = true;
           }
         }
@@ -647,7 +558,7 @@ async function handleSprintRetro(args) {
 // --- Server setup ---
 
 const server = new Server(
-  { name: 'codepresso-notion', version: '0.1.15' },
+  { name: 'codepresso-notion', version: '0.2.0' },
   { capabilities: { tools: {} } }
 );
 

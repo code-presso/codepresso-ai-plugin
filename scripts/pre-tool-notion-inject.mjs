@@ -17,8 +17,9 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { getStateDir } from './lib/config.mjs';
 
-const STATE_DIR = join(process.cwd(), '.omc', 'state');
+const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
 const SELECTED_TASK_FILE = join(STATE_DIR, 'codepresso-selected-task.json');
 

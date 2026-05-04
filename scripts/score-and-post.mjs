@@ -10,8 +10,9 @@ import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { scorePrompts } from './lib/prompt-scorer.mjs';
 import { recordFlush } from './lib/analytics.mjs';
+import { getStateDir } from './lib/config.mjs';
 
-const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
+const SESSION_FILE = join(getStateDir(), 'codepresso-session.json');
 
 function readSkippedCount() {
   try {
@@ -76,7 +77,7 @@ async function main() {
   const body = formatComment(entries, scores, meta, scoringBackend, skippedCount);
 
   // Post to PR via temp file (avoids shell escaping issues with backticks)
-  const bodyFile = join(meta.cwd || process.cwd(), '.omc', 'state', `codepresso-comment-${Date.now()}.md`);
+  const bodyFile = join(getStateDir(meta.gitRoot || meta.cwd || process.cwd()), `codepresso-comment-${Date.now()}.md`);
   try {
     writeFileSync(bodyFile, body, 'utf-8');
     execSync(`gh pr comment ${prNumber} --body-file "${bodyFile}"`, {

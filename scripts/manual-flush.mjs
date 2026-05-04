@@ -14,9 +14,9 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
-import { loadConfig } from './lib/config.mjs';
+import { loadConfig, getStateDir } from './lib/config.mjs';
 
-const STATE_DIR = join(process.cwd(), '.omc', 'state');
+const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
 const BATCH_FILE = join(STATE_DIR, 'codepresso-batch.jsonl');
 const TIMER_FILE = join(STATE_DIR, 'codepresso-batch-timer.json');

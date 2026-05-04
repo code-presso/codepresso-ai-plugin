@@ -2,11 +2,12 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { getStateDir } from '../../scripts/lib/config.mjs';
 import { resolveTaskForPr } from '../../scripts/lib/status-transitions.mjs';
 
 describe('status-transitions.mjs', () => {
   describe('resolveTaskForPr', () => {
-    const stateDir = join(process.cwd(), '.omc', 'state');
+    const stateDir = getStateDir();
     const selectedTaskFile = join(stateDir, 'codepresso-selected-task.json');
     let originalContent = null;
     let originallyExisted = false;

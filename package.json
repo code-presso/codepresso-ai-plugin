@@ -1,6 +1,6 @@
 {
   "name": "codepresso-plugin",
-  "version": "0.1.15",
+  "version": "0.2.0",
   "description": "Team workflow plugin - GitHub PR logging + Notion sync for Claude Code",
   "type": "module",
   "engines": {
@@ -12,6 +12,7 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.994.0",
     "@aws-sdk/client-ec2": "^3.994.0",
-    "@modelcontextprotocol/sdk": "^1.25.3"
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@notionhq/client": "^2.3.0"
   }
 }

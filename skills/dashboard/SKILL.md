@@ -33,11 +33,11 @@ Display team analytics: prompt quality scores, activity volume, git operations, 
 
    Then stop — do not proceed to other steps.
 
-2. **Read current session** from `.omc/state/codepresso-session.json`:
+2. **Read current session** from `.codepresso/state/codepresso-session.json`:
    - Branch, PR number, session ID
    - Calculate duration from session start
 
-   Read pending batch from `.omc/state/codepresso-batch.jsonl`:
+   Read pending batch from `.codepresso/state/codepresso-batch.jsonl`:
    - Count pending prompts
 
 3. **Parse analytics records**
@@ -137,7 +137,7 @@ Display team analytics: prompt quality scores, activity volume, git operations, 
 ## Tool Usage
 
 - Use `Bash` with `cat` to read the JSONL file and session state files
-- Use `Read` tool for `.omc/state/codepresso-session.json` and `.omc/state/codepresso-batch.jsonl`
+- Use `Read` tool for `.codepresso/state/codepresso-session.json` and `.codepresso/state/codepresso-batch.jsonl`
 - Do all aggregation logic inline (parse JSON lines, group by sessionId, compute averages)
 - Do NOT modify any files — this skill is read-only
 

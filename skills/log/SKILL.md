@@ -22,16 +22,16 @@ pipeline as the automatic batch system (score-and-post.mjs) but on demand.
 
 <Steps>
 1. **Read session state**
-   - Load `.omc/state/codepresso-session.json`
+   - Load `.codepresso/state/codepresso-session.json`
    - Verify a PR number exists; if not, inform user and stop
    - Note the `gitRoot` value (used as cwd for gh commands)
 
 2. **Check for pending prompts**
-   - Read `.omc/state/codepresso-batch.jsonl`
+   - Read `.codepresso/state/codepresso-batch.jsonl`
    - If empty, inform user "No pending prompts to flush" and stop
 
 3. **Build scoring payload and trigger score-and-post pipeline**
-   - Create a temporary JSON payload file at `.omc/state/codepresso-flush-manual.json`:
+   - Create a temporary JSON payload file at `.codepresso/state/codepresso-flush-manual.json`:
      ```json
      {
        "entries": [<parsed JSONL entries>],
@@ -47,21 +47,21 @@ pipeline as the automatic batch system (score-and-post.mjs) but on demand.
      ```
    - Run the scoring pipeline:
      ```bash
-     node <plugin-path>/scripts/score-and-post.mjs .omc/state/codepresso-flush-manual.json
+     node <plugin-path>/scripts/score-and-post.mjs .codepresso/state/codepresso-flush-manual.json
      ```
      Where `<plugin-path>` is the directory containing the plugin scripts.
      Use the session's `gitRoot` as `cwd` if available.
 
 4. **Clear the batch**
-   - Delete `.omc/state/codepresso-batch.jsonl`
-   - Delete `.omc/state/codepresso-batch-timer.json` if it exists
+   - Delete `.codepresso/state/codepresso-batch.jsonl`
+   - Delete `.codepresso/state/codepresso-batch-timer.json` if it exists
 
 5. **Confirm to user**
    - Report: "Flushed N prompts with scoring to PR #X"
 </Steps>
 
 <Tool_Usage>
-- Use `Read` to load `.omc/state/codepresso-session.json` and `.omc/state/codepresso-batch.jsonl`
+- Use `Read` to load `.codepresso/state/codepresso-session.json` and `.codepresso/state/codepresso-batch.jsonl`
 - Use `Bash` to run `node scripts/score-and-post.mjs` and clean up batch files
 </Tool_Usage>
 
