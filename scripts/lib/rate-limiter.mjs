@@ -1,13 +1,14 @@
 /**
  * Rate limiter for PR comment posting.
  * Tracks comment count per PR per hour and per session.
- * State stored in .omc/state/codepresso-rate-limit.json
+ * State stored in .codepresso/state/codepresso-rate-limit.json
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { getStateDir } from './config.mjs';
 
-const STATE_DIR = join(process.cwd(), '.omc', 'state');
+const STATE_DIR = getStateDir();
 const RATE_FILE = join(STATE_DIR, 'codepresso-rate-limit.json');
 const ONE_HOUR_MS = 3600000;
 

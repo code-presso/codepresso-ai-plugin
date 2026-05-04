@@ -9,6 +9,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROPERTY_TYPES } from './sprint-context.mjs';
+import { getStateDir } from './config.mjs';
 
 const NOTION_API = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
@@ -205,7 +206,7 @@ export async function checkAndCompleteEpic(notionConfig, epicId) {
 export function resolveTaskForPr(branch) {
   if (!branch) return null;
 
-  const selectedTaskFile = join(process.cwd(), '.omc', 'state', 'codepresso-selected-task.json');
+  const selectedTaskFile = join(getStateDir(), 'codepresso-selected-task.json');
   try {
     if (!existsSync(selectedTaskFile)) return null;
     const data = JSON.parse(readFileSync(selectedTaskFile, 'utf-8'));

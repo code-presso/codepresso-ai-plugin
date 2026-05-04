@@ -5,8 +5,9 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getStateDir } from './config.mjs';
 
-const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
+const SESSION_FILE = join(getStateDir(), 'codepresso-session.json');
 
 /**
  * Read the gitRoot from the cached session state.

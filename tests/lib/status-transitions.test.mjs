@@ -6,7 +6,7 @@ import { resolveTaskForPr } from '../../scripts/lib/status-transitions.mjs';
 
 describe('status-transitions.mjs', () => {
   describe('resolveTaskForPr', () => {
-    const stateDir = join(process.cwd(), '.omc', 'state');
+    const stateDir = join(process.cwd(), '.codepresso', 'state');
     const selectedTaskFile = join(stateDir, 'codepresso-selected-task.json');
     let originalContent = null;
     let originallyExisted = false;
