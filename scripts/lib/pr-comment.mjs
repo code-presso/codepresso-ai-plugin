@@ -2,11 +2,11 @@ import { readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, sta
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { loadConfig } from './config.mjs';
+import { loadConfig, getStateDir } from './config.mjs';
 import { redactSecrets } from './redactor.mjs';
 import { canPost, recordPost } from './rate-limiter.mjs';
 
-const STATE_DIR = join(process.cwd(), '.omc', 'state');
+const STATE_DIR = getStateDir();
 const BATCH_FILE = join(STATE_DIR, 'codepresso-batch.jsonl');
 const TIMER_FILE = join(STATE_DIR, 'codepresso-batch-timer.json');
 const LOCK_FILE = join(STATE_DIR, 'codepresso-flush.lock');
