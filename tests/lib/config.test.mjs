@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { isExcluded, isSetupComplete, ensureSetup, loadConfig } from '../../scripts/lib/config.mjs';
+import { isExcluded, isSetupComplete, ensureSetup, loadConfig, getStateDir } from '../../scripts/lib/config.mjs';
 import { existsSync, unlinkSync, rmdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -151,4 +151,17 @@ describe('config.mjs', () => {
     });
 
   });
+
+  describe('getStateDir', () => {
+    it('returns .codepresso/state relative to cwd by default', () => {
+      const expected = join(process.cwd(), '.codepresso', 'state');
+      assert.strictEqual(getStateDir(), expected);
+    });
+
+    it('accepts an explicit cwd', () => {
+      const expected = join('/tmp/myproject', '.codepresso', 'state');
+      assert.strictEqual(getStateDir('/tmp/myproject'), expected);
+    });
+  });
+
 });

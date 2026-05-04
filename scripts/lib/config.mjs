@@ -5,6 +5,10 @@ import { homedir } from 'node:os';
 const GLOBAL_CONFIG_PATH = join(homedir(), '.codepresso', 'config.json');
 const PROJECT_CONFIG_NAME = '.codepresso.json';
 
+export function getStateDir(cwd = process.cwd()) {
+  return join(cwd, '.codepresso', 'state');
+}
+
 const DEFAULT_CONFIG = {
   github: { token: null },
   notion: {
