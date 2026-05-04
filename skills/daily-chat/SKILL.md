@@ -28,7 +28,7 @@ Uses the `gws` CLI (Google Workspace CLI) with OAuth to send as the user's profi
    - If any missing, inform user to run `codepresso:setup`
 
 2. **Fetch current tasks**
-   - Read session state from `.omc/state/codepresso-session.json` for cached tasks
+   - Read session state from `.codepresso/state/codepresso-session.json` for cached tasks
    - If no cached tasks, use MCP tool `notion_query_db` to fetch fresh tasks
 
 3. **Format and send message**

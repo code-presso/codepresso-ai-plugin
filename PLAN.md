@@ -341,10 +341,10 @@ getRepoSlug(cwd):
 
 ```
 Architecture:
-  [prompt] → appendToBatch() → .omc/state/codepresso-batch.jsonl
+  [prompt] → appendToBatch() → .codepresso/state/codepresso-batch.jsonl
                                         ↓
   flushIfReady() checks:
-    - Timer expired? (.omc/state/codepresso-flush-timer.json)
+    - Timer expired? (.codepresso/state/codepresso-flush-timer.json)
     - Batch full? (>= maxBatchSize)
                                         ↓
     YES → read batch, group by PR, format comment, spawn detached `gh pr comment`
@@ -368,7 +368,7 @@ Runs once per session:
 2. Check `prLogging.enabled`
 3. Detect branch via `getCurrentBranch(cwd)`
 4. If branch != main/master, find PR via `findPrForBranch(branch, cwd)`
-5. Cache `{ branch, prNumber, prUrl, startedAt }` to `.omc/state/codepresso-session.json`
+5. Cache `{ branch, prNumber, prUrl, startedAt }` to `.codepresso/state/codepresso-session.json`
 6. Return additionalContext: `[Codepresso] PR #42 detected. Prompts will be logged.`
 
 #### `scripts/user-prompt-logger.mjs` — UserPromptSubmit hook
@@ -376,7 +376,7 @@ Runs once per session:
 Runs on every prompt (MUST be fast, <3s):
 1. Read stdin, extract prompt from `data.prompt || data.message?.content`
 2. Load config, check `prLogging.enabled`
-3. Read cached session state from `.omc/state/codepresso-session.json`
+3. Read cached session state from `.codepresso/state/codepresso-session.json`
 4. If no prNumber cached → return `{ continue: true }` (skip silently)
 5. Check prompt against `excludePatterns` — skip OMC commands
 6. Append `{ timestamp, prompt, sessionId, prNumber }` to batch file
@@ -496,7 +496,7 @@ Reads API key from `~/.codepresso/config.json` at startup.
 | Concern | Design decision |
 |---------|----------------|
 | Both have UserPromptSubmit hooks | Both return `{ continue: true }`. Codepresso does NOT inject additionalContext on prompts — only appends to batch file silently |
-| State file collision | All Codepresso files prefixed `codepresso-*` in `.omc/state/` |
+| State file collision | All Codepresso files prefixed `codepresso-*` in `.codepresso/state/` |
 | Config collision | OMC: `~/.claude/.omc-config.json` / Codepresso: `~/.codepresso/config.json` |
 | Keyword collision | Codepresso has zero magic keywords. `excludePatterns` filters OMC commands from logs |
 | Skill name collision | All Codepresso skills use `codepresso:` prefix |

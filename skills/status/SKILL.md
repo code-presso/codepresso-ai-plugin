@@ -13,17 +13,17 @@ Show the current state of the Codepresso plugin for this session.
 
 ## Steps
 
-1. **Read session state** from `.omc/state/codepresso-session.json`:
+1. **Read session state** from `.codepresso/state/codepresso-session.json`:
    - Show current branch
    - Show detected PR number and URL (or "No PR detected")
    - Show session ID (first 8 chars)
    - Show session start time
 
-2. **Read batch queue** from `.omc/state/codepresso-batch.jsonl`:
+2. **Read batch queue** from `.codepresso/state/codepresso-batch.jsonl`:
    - Count pending prompts (line count)
    - Show oldest entry timestamp if any exist
 
-3. **Read batch timer** from `.omc/state/codepresso-batch-timer.json`:
+3. **Read batch timer** from `.codepresso/state/codepresso-batch-timer.json`:
    - Show when the current batch window started
    - Calculate time until next auto-flush
 
