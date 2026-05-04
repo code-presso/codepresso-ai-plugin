@@ -7,10 +7,11 @@
  */
 
 import { forceFlush } from './lib/pr-comment.mjs';
+import { getStateDir } from './lib/config.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
+const SESSION_FILE = join(getStateDir(), 'codepresso-session.json');
 
 try {
   const session = JSON.parse(readFileSync(SESSION_FILE, 'utf-8'));

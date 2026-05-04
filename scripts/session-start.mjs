@@ -6,7 +6,7 @@
  */
 
 import { readStdin } from './lib/stdin.mjs';
-import { loadConfig, ensureSetup } from './lib/config.mjs';
+import { loadConfig, ensureSetup, getStateDir } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { getSidecarPath } from './lib/pr-comment.mjs';
 
-const STATE_DIR = join(process.cwd(), '.omc', 'state');
+const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
 const GREETING_STATE_FILE = join(homedir(), '.codepresso', 'daily-greeting.json');
 const __filename = fileURLToPath(import.meta.url);

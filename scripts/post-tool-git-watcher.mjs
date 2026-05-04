@@ -6,7 +6,7 @@
  */
 
 import { readStdin } from './lib/stdin.mjs';
-import { loadConfig } from './lib/config.mjs';
+import { loadConfig, getStateDir } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { postGitComment } from './lib/pr-comment.mjs';
 import { recordGitCommit, recordGitPush } from './lib/analytics.mjs';
@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
-const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
+const SESSION_FILE = join(getStateDir(), 'codepresso-session.json');
 const log = createLogger('git-watcher');
 
 function readSession() {
@@ -111,7 +111,7 @@ function extractMergedPr(command, session) {
  */
 function spawnMergeHandler(prNumber, session) {
   try {
-    const payloadFile = join(process.cwd(), '.omc', 'state', `codepresso-merge-${prNumber}.json`);
+    const payloadFile = join(getStateDir(), `codepresso-merge-${prNumber}.json`);
     const payload = {
       prNumber,
       branch: session.branch,
