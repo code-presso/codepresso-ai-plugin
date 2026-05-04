@@ -6,12 +6,12 @@
  */
 
 import { readStdin } from './lib/stdin.mjs';
-import { loadConfig, ensureSetup } from './lib/config.mjs';
+import { loadConfig, ensureSetup, getStateDir } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { fetchSprintWithEpics } from './lib/sprint-context.mjs';
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -19,9 +19,22 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { getSidecarPath } from './lib/pr-comment.mjs';
 
-const STATE_DIR = join(process.cwd(), '.omc', 'state');
+const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
 const GREETING_STATE_FILE = join(homedir(), '.codepresso', 'daily-greeting.json');
+
+// One-time migration: move legacy .omc/state/codepresso-* files to .codepresso/state/
+const legacyStateDir = join(process.cwd(), '.omc', 'state');
+if (existsSync(legacyStateDir) && !existsSync(STATE_DIR)) {
+  try {
+    mkdirSync(STATE_DIR, { recursive: true });
+    for (const file of readdirSync(legacyStateDir)) {
+      if (file.startsWith('codepresso-')) {
+        renameSync(join(legacyStateDir, file), join(STATE_DIR, file));
+      }
+    }
+  } catch { /* migration is best-effort */ }
+}
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const log = createLogger('session-start');

@@ -91,7 +91,7 @@ All hooks return `{ continue: true }`. The UserPromptSubmit hook does **NOT** in
 `score-and-post.mjs` runs as a detached child process (`child_process.spawn` with `detached: true, stdio: 'ignore'`). This ensures hooks return within their timeout (3s for prompts, 5s for session start) while scoring and posting happen asynchronously.
 
 ### 3. JSONL Batch Queue
-Prompts are appended to `.omc/state/codepresso-batch.jsonl` as atomic line writes. Flushing reads the entire file, processes it, then truncates. This avoids race conditions and is crash-safe.
+Prompts are appended to `.codepresso/state/codepresso-batch.jsonl` as atomic line writes. Flushing reads the entire file, processes it, then truncates. This avoids race conditions and is crash-safe.
 
 ### 4. Two-Level Config Merge
 `defaults ← ~/.codepresso/config.json ← .codepresso.json`. Merge is **shallow per-section**: project values override global values within each top-level key but don't replace entire sections. See `scripts/lib/config.mjs:mergeSections()`.
@@ -100,7 +100,7 @@ Prompts are appended to `.omc/state/codepresso-batch.jsonl` as atomic line write
 The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) from task pages and enforces a `[UNIQUE-ID] description` PR title format. When `gh pr create` is detected without the Notion ID prefix, the hook **blocks** the command and instructs Claude to re-run with the correct format. It reads the selected task to determine the required prefix. This enables Notion's GitHub integration to automatically link PRs to tasks.
 
 ### 6. OMC Coexistence
-- State files: all prefixed `codepresso-*` in `.omc/state/`
+- State files: all prefixed `codepresso-*` in `.codepresso/state/`
 - Config: separate path `~/.codepresso/config.json` (not `~/.claude/`)
 - Skills: all use `codepresso:` prefix
 - Exclude patterns: regex-based filtering of OMC commands from logs
@@ -132,7 +132,7 @@ The plugin sends two Google Chat messages per workday to the configured space, b
 ### 10. Pre-PR Prompt Capture — Sidecar Pattern
 Users typically plan before creating a PR. Without special handling, all prompts from the planning phase would be lost because `session.prNumber` is null and `forceFlush` at session end had no PR to post to.
 
-**Sidecar file** (`codepresso-prepr-{branch-slug}.jsonl` in `.omc/state/`): A per-branch JSONL file that persists prompts made before a PR exists. The slug is derived by replacing non-alphanumeric characters with `-` and lowercasing (max 80 chars).
+**Sidecar file** (`codepresso-prepr-{branch-slug}.jsonl` in `.codepresso/state/`): A per-branch JSONL file that persists prompts made before a PR exists. The slug is derived by replacing non-alphanumeric characters with `-` and lowercasing (max 80 chars).
 
 **Three capture paths:**
 
@@ -157,7 +157,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Timeout:** 5s
 - **Input:** Standard hook stdin (session metadata)
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Writes `.omc/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs). Scans submodules for active PRs when top-level repo has none. If a PR is detected and a branch sidecar (`codepresso-prepr-{branch}.jsonl`) exists, spawns `backfill-flush.mjs` to retroactively post pre-PR planning prompts.
+- **Side effects:** Writes `.codepresso/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs). Scans submodules for active PRs when top-level repo has none. If a PR is detected and a branch sidecar (`codepresso-prepr-{branch}.jsonl`) exists, spawns `backfill-flush.mjs` to retroactively post pre-PR planning prompts.
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
 ### PreToolUse (`scripts/pre-tool-notion-inject.mjs`)
@@ -166,7 +166,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Input:** `hookInput.toolName` and `hookInput.toolInput` from stdin
 - **Output:** `{ continue: true/false, hookSpecificOutput?: { hookEventName, additionalContext } }`
 - **Behavior 1 — Task Picker:** On first tool use, injects cached Notion tasks as `additionalContext` with instructions for Claude to present an interactive `AskUserQuestion` picker. Filters out completed tasks, sorts by status. Includes Notion unique IDs (e.g., `TSK-9945`) when available.
-- **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads the selected task from `.omc/state/codepresso-selected-task.json`. If a task with a `uniqueId` is selected and the PR title doesn't include it, **blocks** the command (`continue: false`) and instructs Claude to prefix the title with the Notion ID for auto-linking.
+- **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads the selected task from `.codepresso/state/codepresso-selected-task.json`. If a task with a `uniqueId` is selected and the PR title doesn't include it, **blocks** the command (`continue: false`) and instructs Claude to prefix the title with the Notion ID for auto-linking.
 - **Side effects:** Writes `notionContextShown` flag to session file; reads selected task file
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
@@ -174,7 +174,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Timeout:** 3s (CRITICAL — must be fast)
 - **Input:** `hookInput.userPrompt` from stdin
 - **Output:** `{ continue: true }` — never adds `additionalContext`
-- **Side effects:** Appends entries `{ timestamp, prompt, sessionId }` to `.omc/state/codepresso-batch.jsonl`. May trigger flush via `flushIfReady()`.
+- **Side effects:** Appends entries `{ timestamp, prompt, sessionId }` to `.codepresso/state/codepresso-batch.jsonl`. May trigger flush via `flushIfReady()`.
 - **Failure mode:** Silent
 
 ### PostToolUse:Bash (`scripts/post-tool-git-watcher.mjs`)
@@ -196,7 +196,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 
 ## State Files
 
-All state lives in `.omc/state/` with `codepresso-` prefix:
+All state lives in `.codepresso/state/` with `codepresso-` prefix:
 
 | File | Format | Purpose |
 |------|--------|---------|
@@ -396,8 +396,8 @@ echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1
 - Restart Claude Code (hooks load at session start)
 
 ### Batch not flushing
-- Check `.omc/state/codepresso-batch.jsonl` exists and has content
-- Verify timer: `.omc/state/codepresso-batch-timer.json`
+- Check `.codepresso/state/codepresso-batch.jsonl` exists and has content
+- Verify timer: `.codepresso/state/codepresso-batch-timer.json`
 - Lower `batchIntervalSeconds` for testing
 
 ### Scoring returning nulls
@@ -406,6 +406,6 @@ echo '{"toolInput":{"command":"git commit -m \"test\""},"toolOutput":"[main abc1
 - Test directly: `ANTHROPIC_API_KEY=... node -e "import('./scripts/lib/prompt-scorer.mjs').then(m => m.scorePrompts(['test']).then(console.log))"`
 
 ### State file corruption
-- Delete `.omc/state/codepresso-*.json` and `.omc/state/codepresso-*.jsonl`
+- Delete `.codepresso/state/codepresso-*.json` and `.codepresso/state/codepresso-*.jsonl`
 - Restart Claude Code to regenerate session state
 

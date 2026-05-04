@@ -152,7 +152,7 @@ When you start Claude Code, Codepresso:
 3. Finds the associated PR via `gh pr list`
 4. If no PR found (e.g., monorepo root on `main`), scans submodules for active branches with open PRs
 5. Fetches your Notion tasks (with unique IDs like `TSK-9945`)
-6. Caches everything to `.omc/state/codepresso-session.json` (including `gitRoot` and `activeSubmodule`)
+6. Caches everything to `.codepresso/state/codepresso-session.json` (including `gitRoot` and `activeSubmodule`)
 7. Displays PR status: `[Codepresso] PR #42 detected. Prompts will be logged.`
 
 ### Prompt Logging + Scoring
@@ -307,7 +307,7 @@ Codepresso is designed to run alongside oh-my-claudecode without conflicts:
 | Concern | Design |
 |---------|--------|
 | Both have UserPromptSubmit hooks | Both return `{ continue: true }`. Codepresso is silent (no additionalContext on prompts) |
-| State files | All prefixed `codepresso-*` in `.omc/state/` |
+| State files | All prefixed `codepresso-*` in `.codepresso/state/` |
 | Config | OMC: `~/.claude/.omc-config.json`, Codepresso: `~/.codepresso/config.json` |
 | Keywords | Codepresso has zero magic keywords. `excludePatterns` filters OMC commands |
 

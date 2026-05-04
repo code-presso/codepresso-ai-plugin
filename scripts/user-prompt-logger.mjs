@@ -6,7 +6,7 @@
  */
 
 import { readStdin } from './lib/stdin.mjs';
-import { loadConfig, isExcluded } from './lib/config.mjs';
+import { loadConfig, isExcluded, getStateDir } from './lib/config.mjs';
 import { isTrivial } from './lib/trivial-filter.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { appendToBatch, flushIfReady } from './lib/pr-comment.mjs';
@@ -14,7 +14,7 @@ import { isMainBranch } from './lib/git-utils.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SESSION_FILE = join(process.cwd(), '.omc', 'state', 'codepresso-session.json');
+const SESSION_FILE = join(getStateDir(), 'codepresso-session.json');
 const log = createLogger('prompt-logger');
 
 function readSession() {

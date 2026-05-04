@@ -29,7 +29,7 @@ via OMC's Planner agent to complete requirements, technical design, and acceptan
 
 2. **Resolve epic**
    - **If user provided an epic ID** (e.g., `generate-epic GP-1014`): use it directly to search
-   - **Else check current branch context**: Read `.omc/state/codepresso-selected-task.json`, check if the current branch entry has `epicUniqueId` — if so, use that
+   - **Else check current branch context**: Read `.codepresso/state/codepresso-selected-task.json`, check if the current branch entry has `epicUniqueId` — if so, use that
    - **Else fetch sprint context**: Use the `mcp__notion__notion_sprint_context` or `mcp__plugin_codepresso_notion__notion_sprint_context` MCP tool with `{ include_completed: false, assignee_only: false }` to get all epics
    - Present epics to user via `AskUserQuestion`:
      - question: "Which epic would you like to generate a PRD for?"

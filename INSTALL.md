@@ -326,8 +326,8 @@ These are completely separate configuration files.
 
 ### State File Isolation
 
-- **OMC State**: `.omc/state/` (various files)
-- **Codepresso State**: `.omc/state/codepresso-*` (all prefixed with `codepresso-`)
+- **OMC State**: `.codepresso/state/` (various files)
+- **Codepresso State**: `.codepresso/state/codepresso-*` (all prefixed with `codepresso-`)
 
 State files are namespaced to prevent collisions.
 
@@ -452,7 +452,7 @@ cat ~/.claude/plugins/codepresso/hooks/hooks.json
 **Diagnosis**:
 ```bash
 # Check batch file
-cat ~/.omc/state/codepresso-batch-*.jsonl | wc -l
+cat ~/.codepresso/state/codepresso-batch-*.jsonl | wc -l
 
 # Check config for batch interval
 cat ~/.codepresso/config.json | grep batchInterval
