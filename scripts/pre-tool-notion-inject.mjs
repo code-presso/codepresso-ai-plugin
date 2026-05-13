@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * Codepresso PreToolUse hook — Notion task picker + PR title enforcement.
+ * Codepresso PreToolUse hook — Notion task picker + PR link enforcement.
  *
- * Two responsibilities:
+ * Three responsibilities:
  * 1. On the first tool use of a session, injects cached Notion tasks as
  *    additionalContext with instructions for Claude to present an interactive
  *    AskUserQuestion picker.
- * 2. On `gh pr create` commands, enforces PR title format "[NOTION-ID] title"
- *    so Notion's GitHub integration can auto-link PRs to tasks.
+ * 2. On `gh pr create` commands with a selected task, enforces PR title
+ *    format "[NOTION-ID] title" so Notion's GitHub integration can auto-link.
+ * 3. On `gh pr create` commands with NO selected task, blocks the command
+ *    and prompts the user to pick an existing active task or create a new
+ *    one from the PR title (only when Notion is configured; otherwise
+ *    falls through for graceful degradation).
  *
  * Why PreToolUse? Claude Code silently drops additionalContext from
  * SessionStart and UserPromptSubmit hooks. Only PreToolUse / PostToolUse
@@ -17,11 +21,16 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { getStateDir } from './lib/config.mjs';
+import { getStateDir, loadConfig } from './lib/config.mjs';
 
 const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
 const SELECTED_TASK_FILE = join(STATE_DIR, 'codepresso-selected-task.json');
+
+// Notion task DB property names (mirrors sprint-context.mjs PROPERTY_TYPES.task)
+const TASK_PROP_TITLE = '작업명';
+const TASK_PROP_STATUS = '상태';
+const TASK_PROP_ASSIGNEE = '담당자';
 
 // Fast stdin capture with timeout — never block more than 500ms
 let stdinData = '';
@@ -317,17 +326,109 @@ function emitAndMark(session, context) {
 }
 
 /**
+ * Extract --title "..." value from a gh command. Handles single/double quotes.
+ */
+function extractPrTitle(command) {
+  const m = command.match(/--title\s+["']([^"']*?)["']/);
+  return m ? m[1] : '';
+}
+
+/**
+ * Block `gh pr create` when no Notion task is linked. Emits AskUserQuestion
+ * instructions: pick from top active tasks, or create a new task from PR title.
+ * Falls through (returns false) when Notion is unconfigured.
+ */
+function handlePrCreateNoTask(command, session) {
+  const config = loadConfig();
+  const notion = config?.notion || {};
+  if (!notion.apiKey || !notion.databases?.task) {
+    return false; // graceful degradation — Notion not configured
+  }
+
+  const prTitle = extractPrTitle(command);
+  if (!prTitle) return false; // let gh fail naturally on missing --title
+
+  const activeTasks = (session.notionTasks || []).filter(
+    (t) => !isCompletedStatus(t.status),
+  );
+  const statusOrder = ['할 일', '진행 중'];
+  const sorted = [...activeTasks].sort((a, b) => {
+    const aIdx = statusOrder.indexOf(a.status);
+    const bIdx = statusOrder.indexOf(b.status);
+    const aOrder = aIdx >= 0 ? aIdx : statusOrder.length;
+    const bOrder = bIdx >= 0 ? bIdx : statusOrder.length;
+    return aOrder - bOrder;
+  });
+  const top = sorted.slice(0, 3);
+
+  const assigneeLine = notion.userId
+    ? `      "${TASK_PROP_ASSIGNEE}": { "people": [{ "id": "${notion.userId}" }] },\n`
+    : '';
+
+  const lines = [
+    `[Codepresso] PR creation blocked — no Notion task linked.`,
+    ``,
+    `Attempted PR title: "${prTitle}"`,
+    `Task database: ${notion.databases.task}`,
+    ``,
+    `Top ${top.length} active task(s):`,
+    JSON.stringify(top, null, 2),
+    ``,
+    `INSTRUCTIONS:`,
+    `1. Present AskUserQuestion with up to 4 options:`,
+    `   - For each active task above: label = "[UNIQUE-ID] title" (or just title if no uniqueId), description = status`,
+    `   - Final option: label = "Create new task: '${prTitle}'", description = "Create in Notion and link this PR"`,
+    ``,
+    `2. If user picks an existing task:`,
+    `   a. If status != "진행 중", call mcp__plugin_codepresso_notion__notion_update_page`,
+    `      with { page_id: "<task-id>", properties: { "${TASK_PROP_STATUS}": { "status": { "name": "진행 중" } } } }`,
+    `   b. Write to ${SELECTED_TASK_FILE}:`,
+    `      { "id": "<task-id>", "title": "<task-title>", "uniqueId": "<unique-id>", "epicId": null, "epicUniqueId": null }`,
+    `   c. Re-run the original gh pr create with the title prefixed: --title "[UNIQUE-ID] ${prTitle}"`,
+    ``,
+    `3. If user picks "Create new task":`,
+    `   a. Call mcp__plugin_codepresso_notion__notion_create_page with:`,
+    `      {`,
+    `        "database_id": "${notion.databases.task}",`,
+    `        "properties": {`,
+    `          "${TASK_PROP_TITLE}": { "title": [{ "text": { "content": "${prTitle.replace(/"/g, '\\"')}" } }] },`,
+    assigneeLine +
+      `          "${TASK_PROP_STATUS}": { "status": { "name": "할 일" } }`,
+    `        }`,
+    `      }`,
+    `   b. From the response, read response.properties to find the property with type "unique_id".`,
+    `      Build uniqueId as "<prefix>-<number>" (e.g. "TSK-12345").`,
+    `   c. Write to ${SELECTED_TASK_FILE}:`,
+    `      { "id": "<new-page-id>", "title": "${prTitle.replace(/"/g, '\\"')}", "uniqueId": "<unique-id>", "epicId": null, "epicUniqueId": null }`,
+    `   d. Re-run the original gh pr create with --title "[<unique-id>] ${prTitle}"`,
+    ``,
+    `IMPORTANT: Do not bypass this enforcement. The user must either pick or create.`,
+    `If the Notion API call fails, surface the error to the user and stop — do not silently retry the PR command.`,
+  ];
+
+  process.stdout.write(JSON.stringify({
+    continue: false,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      additionalContext: lines.join('\n'),
+    },
+  }));
+  return true;
+}
+
+/**
  * Handle `gh pr create` interception — enforce Notion task ID in title.
  * Now branch-aware: looks up selected task for the current branch.
  * Returns true if handled, false to fall through.
  */
 function handlePrCreate(command, session) {
   const selectedTask = readSelectedTask();
-  if (!selectedTask?.uniqueId) return false;
+  if (!selectedTask?.uniqueId) {
+    return handlePrCreateNoTask(command, session);
+  }
 
   // Extract --title value from the command
-  const titleMatch = command.match(/--title\s+["']([^"']*?)["']/);
-  const currentTitle = titleMatch ? titleMatch[1] : '';
+  const currentTitle = extractPrTitle(command);
 
   // Build the ID prefix based on prTitleFormat config
   const format = session?.prTitleFormat || 'task';

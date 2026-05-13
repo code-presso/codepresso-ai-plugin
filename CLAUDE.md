@@ -99,6 +99,8 @@ Prompts are appended to `.codepresso/state/codepresso-batch.jsonl` as atomic lin
 ### 5. Notion–GitHub Auto-Linking via PR Title
 The PreToolUse hook extracts Notion's `unique_id` property (e.g., `TSK-9945`) from task pages and enforces a `[UNIQUE-ID] description` PR title format. When `gh pr create` is detected without the Notion ID prefix, the hook **blocks** the command and instructs Claude to re-run with the correct format. It reads the selected task to determine the required prefix. This enables Notion's GitHub integration to automatically link PRs to tasks.
 
+**No-task enforcement:** When `gh pr create` runs without a selected task, the hook blocks and emits a pick-or-create `AskUserQuestion` flow (top 3 active tasks + "Create new from PR title"). Picking an existing task transitions it to 진행 중; picking "Create new" calls `notion_create_page` against `notion.databases.task` with title from `--title`, status `할 일`, and assignee from `notion.userId`. The selected/created task is written to `codepresso-selected-task.json` and `gh pr create` is retried with the `[UNIQUE-ID]` prefix. Falls through silently when Notion is unconfigured.
+
 ### 6. OMC Coexistence
 - State files: all prefixed `codepresso-*` in `.codepresso/state/`
 - Config: separate path `~/.codepresso/config.json` (not `~/.claude/`)
@@ -167,6 +169,7 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 - **Output:** `{ continue: true/false, hookSpecificOutput?: { hookEventName, additionalContext } }`
 - **Behavior 1 — Task Picker:** On first tool use, injects cached Notion tasks as `additionalContext` with instructions for Claude to present an interactive `AskUserQuestion` picker. Filters out completed tasks, sorts by status. Includes Notion unique IDs (e.g., `TSK-9945`) when available.
 - **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads the selected task from `.codepresso/state/codepresso-selected-task.json`. If a task with a `uniqueId` is selected and the PR title doesn't include it, **blocks** the command (`continue: false`) and instructs Claude to prefix the title with the Notion ID for auto-linking.
+- **Behavior 3 — PR Link Enforcement (no-task case):** On `gh pr create` when no task is selected, checks `notion.apiKey` and `notion.databases.task`. If both are configured, **blocks** and emits an `AskUserQuestion` instruction set: present the top 3 active tasks plus a "Create new task: '<PR title>'" option. Claude either calls `notion_update_page` (existing task → 진행 중) or `notion_create_page` (new task with title from PR `--title`, status `할 일`, assignee from `notion.userId`), writes `codepresso-selected-task.json`, then re-runs `gh pr create` with the `[UNIQUE-ID]` prefix. Falls through silently when Notion is unconfigured (graceful degradation).
 - **Side effects:** Writes `notionContextShown` flag to session file; reads selected task file
 - **Failure mode:** Silent (returns `{ continue: true }` on error)
 
