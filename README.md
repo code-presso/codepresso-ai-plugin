@@ -272,6 +272,12 @@ Then say "deploy to staging" in Claude Code.
 | `codepresso:daily-chat` | "daily chat", "send morning summary" | 아침 Google Chat 인사 수동 전송 |
 | `codepresso:daily-summary` | "daily summary", "end of day summary" | 저녁 Google Chat 마감 요약 수동 전송 (월–금 18:00 크론에서도 자동 실행) |
 | `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
+| `codepresso:oncall` | "who's on call?", "이번주 온콜 누구?" | Query current on-call schedule from DynamoDB + Google Calendar |
+| `codepresso:oncall-generate` | "generate next month's oncall" | Invoke allocator Lambda to produce next month's rotation, sync to calendar |
+| `codepresso:oncall-swap` | "swap oncall", "온콜 바꿔줘" | Swap, replace, or role-swap on-call assignments for a specific week |
+| `codepresso:oncall-sync-calendar` | "sync oncall calendar" | Reconcile Google Calendar against DynamoDB (recover from missed syncs) |
+| `codepresso:oncall-seed-metadata` | "seed engineer metadata" | Seed engineer → GitHub username mapping for deploy gate verification |
+| `codepresso:oncall-runbook` | "runbook", "oncall runbook" | Look up sections of `docs/oncall-runbook.md` (sev1, rollback, etc.) |
 
 ## Notion Integration
 
