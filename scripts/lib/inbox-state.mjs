@@ -1,0 +1,60 @@
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, appendFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+const PRUNE_DAYS = 30;
+
+function stateDir(cwd) {
+  return join(cwd, '.codepresso', 'state');
+}
+
+function seenPath(cwd) {
+  return join(stateDir(cwd), 'codepresso-inbox-seen.json');
+}
+
+function readJsonSafe(path, fallback) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonAtomic(path, value) {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp.${randomUUID()}`;
+  writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf-8');
+  renameSync(tmp, path);
+}
+
+export function loadSeen(cwd) {
+  return readJsonSafe(seenPath(cwd), { gmail: [], chat: [], lastScannedAt: null });
+}
+
+export function saveSeen(cwd, seen) {
+  const cutoff = Date.now() - PRUNE_DAYS * 86400 * 1000;
+  const prune = (entries) => (entries || []).filter((e) => {
+    const at = e?.at ? Date.parse(e.at) : 0;
+    return at >= cutoff;
+  });
+  writeJsonAtomic(seenPath(cwd), {
+    gmail: prune(seen.gmail),
+    chat: prune(seen.chat),
+    lastScannedAt: seen.lastScannedAt || null,
+  });
+}
+
+export function markSeen(cwd, source, ids) {
+  if (!ids?.length) return;
+  const seen = loadSeen(cwd);
+  const existing = new Set((seen[source] || []).map((e) => e.id));
+  const at = new Date().toISOString();
+  for (const id of ids) {
+    if (!existing.has(id)) {
+      seen[source].push({ id, at });
+      existing.add(id);
+    }
+  }
+  seen.lastScannedAt = at;
+  saveSeen(cwd, seen);
+}
