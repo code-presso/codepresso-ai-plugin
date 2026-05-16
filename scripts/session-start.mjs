@@ -79,8 +79,10 @@ function markInboxScanScheduled(todayDate) {
   }
 }
 
-function todayLocalDate() {
-  const d = new Date();
+// Uses local-time getters intentionally — the inbox daily flag must agree with
+// `new Date().getDay()` used to detect weekday vs weekend. (Distinct from the
+// greeting's `toISOString().slice(0,10)` which uses UTC.)
+function todayLocalDate(d = new Date()) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
@@ -250,8 +252,9 @@ async function main() {
     }
 
     // Inbox scan instruction (first weekday session of the day, when enabled)
-    const today = todayLocalDate();
-    const dayOfWeek = new Date().getDay();
+    const now = new Date();
+    const today = todayLocalDate(now);
+    const dayOfWeek = now.getDay();
     const inboxLastRun = readInboxLastRunDate();
     if (shouldRunInboxScan(config, today, inboxLastRun, dayOfWeek)) {
       contextParts.push(
