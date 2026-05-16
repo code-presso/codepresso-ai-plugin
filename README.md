@@ -1,48 +1,81 @@
 # Codepresso
 
-Team workflow plugin for Claude Code — Notion task sync, sprint workflow automation, PR-linked git activity, daily Google Chat bookends, and optional deploy integration.
+Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스프린트 워크플로우 자동화, PR 연동 git 활동 추적, **Gmail + Google Chat 받은편지함 작업 트래커**, 평일 Google Chat 북엔드, 선택적 배포 연동, 온콜 관리까지.
 
-## What It Does
+---
 
-- **Notion Task Picker**: Pick your Notion task at session start — auto-updates status and enforces PR title format for auto-linking
-- **PR Title Enforcement**: Blocks `gh pr create` unless the title carries the selected task's unique ID (e.g. `TSK-9945`) so Notion's GitHub integration links the PR automatically
-- **Git Tracking**: Detects `git commit` on the active PR and posts a commit comment via `gh pr comment`
-- **PR Merge → Notion Transition**: Detects `gh pr merge` and transitions the linked Notion task (and epic, if applicable) to complete
-- **Sprint Workflow**: Sprint → Epic → Task hierarchy fetched at session start; cascade epic completion when all tasks are done
-- **Deploy Integration** (optional): Trigger deployments from Claude Code — ECS, CodePipeline, or custom
-- **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 오후 6시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송
-- **OMC Compatible**: Runs alongside oh-my-claudecode with zero conflicts
-- **Monorepo / Submodule Support**: Automatically detects submodule PRs when working from a monorepo root
+## 주요 기능
 
-## Installation
+- **Notion 작업 선택기**: 세션 시작 시 Notion 작업을 고르면 상태가 자동으로 "진행 중"으로 바뀌고, PR 제목에 작업 ID가 강제됩니다.
+- **PR 제목 강제**: `gh pr create` 시 선택한 작업의 unique ID(예: `TSK-9945`)가 없으면 차단합니다. Notion의 GitHub 연동이 PR을 자동으로 작업에 연결해 줍니다.
+- **Git 활동 추적**: 활성 PR에서의 `git commit`을 감지해 `gh pr comment`로 커밋 코멘트를 자동 게시합니다.
+- **PR 머지 → Notion 상태 전이**: `gh pr merge`를 감지해 연결된 Notion 작업(그리고 에픽의 마지막 작업이라면 에픽까지)을 완료 상태로 전환합니다.
+- **스프린트 워크플로우**: 세션 시작 시 Sprint → Epic → Task 계층을 가져오고, 에픽의 모든 작업이 끝나면 에픽도 자동 완료 처리합니다.
+- **🆕 받은편지함 작업 트래커**: Gmail과 Google Chat에 묻혀 잊혀지는 작업 요청을 매일 아침 자동으로 스캔합니다. AI가 후보를 골라주면 한 번의 클릭으로 마감일 있는 Notion 작업으로 변환되며, 아침 인사 메시지에는 마감 임박/지난 작업이 함께 표시됩니다.
+- **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 18시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송합니다.
+- **배포 연동** (선택): ECS, CodePipeline, GitHub Actions, 커스텀 명령어 중 원하는 방식으로 Claude Code에서 배포를 트리거할 수 있습니다.
+- **온콜 관리** (선택): DynamoDB + Google Calendar 기반 온콜 스케줄 조회/교체/생성, 런북 검색까지 Claude에서 한 번에.
+- **OMC 호환**: oh-my-claudecode와 충돌 없이 함께 동작합니다.
+- **모노레포 / 서브모듈 지원**: 모노레포 루트에서 작업할 때 서브모듈의 활성 PR을 자동 감지합니다.
 
-### Option A: Symlink to plugins directory
+---
+
+## 무엇이 편리해지나요?
+
+### 🔁 반복 작업이 사라집니다
+- **PR ↔ Notion 연결**: 매번 Notion 작업을 PR에 손으로 붙이던 일이 제목 강제로 자동화 → 클릭 3~4번이 0번으로.
+- **커밋 진행 상황 공유**: 커밋마다 PR에 코멘트 다는 일을 git 훅이 대신 → 리뷰어가 따라가기 쉬워집니다.
+- **작업 완료 처리**: PR 머지 후 Notion에 가서 상태 바꾸는 일을 잊지 않아도 됩니다 (자동 전이).
+- **에픽 자동 완료**: 에픽의 마지막 작업이 끝나면 에픽까지 자동으로 완료로 표시.
+
+### 📥 잊혀지는 작업이 없어집니다
+- **Gmail/Chat 자동 triage**: 받은편지함과 채팅의 작업 요청이 알림 너머로 사라지지 않습니다. 매일 아침 AI가 후보를 추려 보여줍니다.
+- **마감일 추적**: 마감일이 지난 작업과 오늘 마감인 작업이 아침 인사에 묶여 → 우선순위 정리가 자동으로.
+- **30일 dedup**: 한 번 거절한 메시지는 30일간 다시 추천되지 않아 같은 알림에 시달리지 않습니다.
+
+### 🪟 컨텍스트 전환이 줄어듭니다
+- **한 화면에서 시작**: 스프린트 진행 상황, 내 PR, 리뷰 대기 PR, 받은편지함 작업을 Google Chat 한 곳에서 → 아침에 여러 탭을 켤 필요가 없습니다.
+- **자동 회고**: 평일 18시에 자동 요약을 받아 → "오늘 뭐 했지?" 회고가 무료로 생깁니다.
+- **터미널에서 끝**: 작업 선택, PR 생성, 머지, 배포, 온콜 조회 모두 Claude Code 내에서 처리.
+
+### 👥 팀과의 가시성이 좋아집니다
+- **비동기 추적**: 모든 활동이 PR 코멘트와 Notion 상태로 흐릅니다. 팀원이 회의 없이 진행 상황을 따라갈 수 있습니다.
+- **공유 채널**: Google Chat 스페이스에서 아침/저녁 자동 메시지로 → 작업 현황 공유에 추가 작업이 들지 않습니다.
+- **자동 라벨링**: PR에 자동으로 `ai-assisted` 라벨이 붙어 → AI 협업 비율 파악에 도움.
+
+---
+
+## 설치
+
+### 옵션 A: 플러그인 디렉터리에 심볼릭 링크
 
 ```bash
 ln -s /path/to/codepresso-plugin ~/.claude/plugins/codepresso
 ```
 
-### Option B: Claude plugin add
+### 옵션 B: Claude plugin add
 
 ```bash
 claude plugin add ./codepresso-plugin
 ```
 
-### Install dependencies
+### 의존성 설치
 
 ```bash
 cd codepresso-plugin && npm install
 ```
 
-## Setup
+---
 
-Run the interactive setup wizard:
+## 설정
+
+대화식 설정 마법사를 실행하세요:
 
 ```
 codepresso:setup
 ```
 
-Or manually create `~/.codepresso/config.json`:
+또는 `~/.codepresso/config.json`을 직접 만들 수 있습니다:
 
 ```json
 {
@@ -62,6 +95,13 @@ Or manually create `~/.codepresso/config.json`:
       "prTitleFormat": "task"
     }
   },
+  "inbox": {
+    "enabled": false
+  },
+  "googleChat": {
+    "enabled": false,
+    "spaceId": null
+  },
   "deploy": {
     "enabled": false,
     "method": null
@@ -69,9 +109,9 @@ Or manually create `~/.codepresso/config.json`:
 }
 ```
 
-### Per-Project Config
+### 프로젝트별 설정
 
-Create `.codepresso.json` in your project root to override global settings:
+프로젝트 루트에 `.codepresso.json`을 두어 전역 설정을 덮어쓸 수 있습니다:
 
 ```json
 {
@@ -86,27 +126,30 @@ Create `.codepresso.json` in your project root to override global settings:
 }
 ```
 
-## Daily Workflow
+---
 
-Here's what a typical day looks like with Codepresso:
+## 일상 워크플로우
 
-### 1. Start Claude Code
+Codepresso와 함께하는 하루는 이렇게 흐릅니다.
+
+### 1. Claude Code 시작
 
 ```
 $ claude
 ```
 
-Codepresso automatically:
-- Detects your branch and PR
-- Fetches your Notion tasks (filtered by assignee)
-- On the first weekday session of the day, sends your morning summary to Google Chat (if configured)
+자동으로:
+- 브랜치와 PR을 감지
+- 본인이 담당자인 Notion 작업을 가져옴
+- 평일 첫 세션이면 아침 인사를 Google Chat으로 전송 (설정된 경우)
+- 🆕 `inbox.enabled: true`라면 받은편지함 스캔 안내문을 주입 → Claude가 Gmail + Chat을 훑어 작업 후보를 제시
 
-### 2. Pick a Task
+### 2. 작업 선택
 
-An interactive picker appears with your active Notion tasks:
+활성 Notion 작업이 대화식 picker로 표시됩니다:
 
 ```
-Which task would you like to work on?
+어떤 작업을 하시겠어요?
 
   [TSK-9945] plugin과 notion 연동 되도록 title 형식 지정  (진행 중)
   [TSK-8700] Oracle DB 성능 테스트                        (할 일)
@@ -114,49 +157,112 @@ Which task would you like to work on?
   Other
 ```
 
-When you pick a task, Codepresso:
-- Updates the Notion task status to "진행 중" (In Progress)
-- Saves the selection for PR title enforcement
+작업을 선택하면:
+- Notion 작업 상태가 "진행 중"으로 자동 변경
+- 선택 정보가 저장되어 PR 제목 강제에 활용
 
-### 3. Work Normally
+### 3. 평소처럼 작업
 
-Write code, commit. Each `git commit` posts a small comment to the open PR so reviewers can follow along.
+코드를 짜고, 커밋하세요. 각 `git commit`은 활성 PR에 작은 코멘트로 자동 게시되어 리뷰어가 진행 상황을 따라갈 수 있습니다.
 
-### 4. Create a PR
+### 4. PR 생성
 
-When you create a PR, Codepresso **enforces** the Notion task ID in the title:
+PR을 만들 때 Codepresso는 Notion 작업 ID를 **강제**합니다:
 
 ```
-# This gets blocked:
+# 이건 차단됩니다:
 gh pr create --title "Add PR title format"
 
-# Codepresso suggests:
+# Codepresso가 안내:
 gh pr create --title "TSK-9945 Add PR title format"
 ```
 
-The `TSK-9945` prefix enables Notion's GitHub integration to **automatically link** the PR to your task — no manual connection needed.
+`TSK-9945` 접두사 덕분에 Notion의 GitHub 연동이 PR을 작업에 **자동 연결**합니다 — 수동 작업 없이.
 
-### 5. Merge
+### 5. 머지
 
-When you `gh pr merge`, Codepresso transitions the linked Notion task to complete and, if the epic's last task just finished, marks the epic complete too.
+`gh pr merge`를 하면 연결된 Notion 작업이 완료로 전이됩니다. 에픽의 마지막 작업이 막 끝났다면 에픽도 완료로 표시됩니다.
 
 ---
 
-## How It Works (Details)
+## 🆕 받은편지함 작업 트래커 (Inbox Task Tracker)
 
-### Session Start
+Gmail과 Google Chat에서 누군가 부탁한 작업이 알림 너머로 사라져 잊혀진 적이 있다면, 이 기능이 해결책입니다.
 
-When you start Claude Code, Codepresso:
-1. Resolves the git root via `git rev-parse --show-toplevel`
-2. Detects the current branch
-3. Finds the associated PR via `gh pr list`
-4. If no PR found (e.g., monorepo root on `main`), scans submodules for active branches with open PRs
-5. Fetches your Notion tasks (with unique IDs like `TSK-9945`) and sprint context
-6. Caches everything to `.codepresso/state/codepresso-session.json` (including `gitRoot` and `activeSubmodule`)
+### 동작 방식
 
-### Git Tracking
+매일 아침 (월–금 첫 세션) 또는 `/codepresso:scan-inbox` 수동 실행 시 다음 절차가 돌아갑니다:
 
-When Claude Code runs `git commit` and a PR exists, Codepresso posts:
+1. **Gmail + Chat 가져오기**: 최근 24시간 내 미확인 이메일(공식 `mcp__claude_ai_Gmail` 커넥터) + 설정한 Chat 스페이스의 새 메시지(`gws` CLI)를 수집합니다.
+2. **이전 triage 기억**: 이미 처리한 메시지 ID는 `codepresso-inbox-seen.json`에 30일간 저장되어 다시 추천되지 않습니다.
+3. **AI 분류**: Claude가 각 메시지를 보고 "이건 할 일이다 / 아니다"를 판단합니다. 노이즈는 자동으로 걸러집니다.
+4. **승인 picker**: `AskUserQuestion` 다중 선택으로 한 번에 4개씩 후보를 보여줍니다. 골라낸 것만 작업이 됩니다.
+5. **마감일 지정**: 채택한 후보마다 마감일을 선택합니다 (오늘 EOD / 내일 / 이번주 금요일 / 다음주 월요일 / 사용자 지정).
+6. **Notion 작업 생성**: 공식 `mcp__claude_ai_Notion` 커넥터로 작업 페이지를 만듭니다. 제목, 담당자, 상태("할 일"), 마감일, 원본 링크가 자동으로 채워집니다.
+
+매일 아침 인사에는 마감 알림이 자동 포함됩니다:
+
+```
+🔥 마감 지남 (2):
+  • [TSK-12345] Q3 예산 보내기 — 3일 지남
+  • [TSK-12340] 벤더 RFP 회신 — 1일 지남
+
+⏰ 오늘 마감 (1):
+  • [TSK-12346] 온보딩 문서 리뷰
+```
+
+### 활성화
+
+`codepresso:setup`을 실행하면 받은편지함 설정 단계가 나타납니다. Gmail OAuth 인증 → Notion 작업 DB에 `마감일` 속성 자동 생성 → Notion 알림 토글 안내 → Chat 스페이스 선택 → `inbox.enabled: true` 적용까지 자동 처리됩니다.
+
+수동 설정은 `~/.codepresso/config.json`에 다음을 추가:
+
+```json
+{
+  "inbox": {
+    "enabled": true,
+    "sources": {
+      "gmail": { "enabled": true, "lookbackHours": 24 },
+      "chat":  { "enabled": true, "spaceIds": ["AAAAxxx"] }
+    },
+    "notion": {
+      "taskDatabaseId": "<task DB ID>",
+      "dueDateProperty": "마감일"
+    }
+  }
+}
+```
+
+**필수 조건**:
+- Gmail: Claude.ai의 공식 Gmail 커넥터 OAuth 인증 (`mcp__claude_ai_Gmail__authenticate`)
+- Chat: `chat.messages.create` 스코프로 인증된 `gws` CLI
+- Notion: 작업 DB에 `date` 타입 속성 (`마감일`). 설정 마법사가 없으면 자동 생성합니다.
+
+### 왜 이게 편한가?
+
+- **놓치는 작업이 없어집니다**: 받은편지함과 Chat을 매일 아침 자동으로 훑어 작업 후보를 제시.
+- **AI가 노이즈를 걸러줍니다**: 알림성 메일, 자동 답장, 광고는 분류 단계에서 제외 → 진짜 행동 아이템만 보입니다.
+- **승인 없이 작업이 안 생깁니다**: 모든 후보는 사용자 승인 필수. Notion이 자동으로 쓰레기로 차지 않습니다.
+- **마감일이 명시적**: 작업마다 마감일을 강제로 정해 우선순위가 흐려지지 않습니다.
+- **아침 알림으로 마감 추적**: Notion 네이티브 리마인더 + 아침 Google Chat 인사 양쪽에서 보입니다.
+
+---
+
+## 자세한 동작 (개발자용)
+
+### 세션 시작
+
+Claude Code를 시작할 때 Codepresso는:
+1. `git rev-parse --show-toplevel`로 git 루트 해석
+2. 현재 브랜치 감지
+3. `gh pr list`로 연결된 PR 찾기
+4. PR이 없으면 (예: 모노레포 루트에서 `main` 위) 서브모듈을 스캔해 활성 브랜치 + 오픈 PR을 찾음
+5. Notion 작업 (unique ID 포함) 및 스프린트 컨텍스트 가져오기
+6. `.codepresso/state/codepresso-session.json`에 모든 정보 캐싱
+
+### Git 추적
+
+Claude Code가 `git commit`을 실행하고 PR이 있으면 Codepresso가 다음을 자동 게시:
 
 ```markdown
 ### 🤖 Git Activity
@@ -173,6 +279,7 @@ When Claude Code runs `git commit` and a PR exists, Codepresso posts:
 - 진행 중인 Notion 작업
 - 내가 작성한 오픈 PR
 - 리뷰 요청 받은 PR
+- 🆕 마감 지난 / 오늘 마감 작업 (inbox 트래커 활성화 시)
 - Claude Haiku가 생성한 응원 한 줄
 
 **저녁 마감 요약** — 월–금 18:00 (세션 크론 `3 18 * * 1-5 /codepresso:daily-summary`):
@@ -182,7 +289,7 @@ When Claude Code runs `git commit` and a PR exists, Codepresso posts:
 - 아직 진행 중인 Notion 작업
 - `claude -p --model haiku`로 생성한 2–4문장 한국어 요약 (`claude` CLI가 없으면 결정론적 템플릿으로 폴백)
 
-활성화하려면 `codepresso:setup`을 실행하거나 `~/.codepresso/config.json`에 아래 설정을 추가하세요.
+활성화하려면 `codepresso:setup`을 실행하거나 `~/.codepresso/config.json`에 다음을 추가:
 
 ```json
 {
@@ -200,13 +307,13 @@ When Claude Code runs `git commit` and a PR exists, Codepresso posts:
 CODEPRESSO_DRY_RUN=1 node scripts/daily-chat-summary.mjs
 ```
 
-**필수 조건:** `chat.messages.create` 스코프로 인증된 `gws` CLI. Haiku 품질의 저녁 요약을 원한다면 PATH 상의 `claude` CLI (선택 — 없으면 폴백 동작).
+**필수 조건**: `chat.messages.create` 스코프로 인증된 `gws` CLI. Haiku 품질의 저녁 요약을 원한다면 PATH 상의 `claude` CLI (선택 — 없으면 폴백).
 
-### Deploy Integration (Optional)
+### 배포 연동 (선택)
 
-Each team configures their own deploy strategy. Deploy is **disabled by default**.
+각 팀이 자체 배포 전략을 설정합니다. 배포는 **기본 비활성화**되어 있습니다.
 
-To enable, add to your project's `.codepresso.json`:
+활성화하려면 프로젝트의 `.codepresso.json`에 추가:
 
 ```json
 {
@@ -220,126 +327,144 @@ To enable, add to your project's `.codepresso.json`:
 }
 ```
 
-Supported methods:
+지원 방식:
 
-| Method | Description | Config Keys |
-|--------|-------------|-------------|
-| `ecs` | Direct ECS deployment | `awsRegion`, `ecsCluster`, `ecsService` |
-| `codepipeline` | Trigger AWS CodePipeline | `awsRegion`, `pipelineName` |
-| `workflow` | Trigger GitHub Actions workflow | `workflowFile` |
-| `custom` | Run custom deploy command | `customCommand` |
+| 방식 | 설명 | 설정 키 |
+|------|------|---------|
+| `ecs` | ECS 직접 배포 | `awsRegion`, `ecsCluster`, `ecsService` |
+| `codepipeline` | AWS CodePipeline 트리거 | `awsRegion`, `pipelineName` |
+| `workflow` | GitHub Actions 워크플로우 트리거 | `workflowFile` |
+| `custom` | 커스텀 배포 명령어 실행 | `customCommand` |
 
-Then say "deploy to staging" in Claude Code.
+이후 Claude Code에서 "staging에 배포해" 라고 말하면 됩니다.
 
-**Workflow templates** are provided in `templates/workflows/` — copy them to your project's `.github/workflows/` and configure secrets.
+**워크플로우 템플릿**은 `templates/workflows/`에 제공됩니다 — 프로젝트의 `.github/workflows/`로 복사하고 시크릿을 설정하세요.
 
-## Skills
+---
 
-| Skill | Trigger | Description |
+## 스킬 목록
+
+| 스킬 | 트리거 | 설명 |
 |-------|---------|-------------|
-| `codepresso:setup` | "setup codepresso" | Interactive configuration wizard |
-| `codepresso:status` | "codepresso status" | Plugin status and diagnostics |
-| `codepresso:notion-sync` | "sync notion tasks" | Query/update Notion database tasks |
-| `codepresso:sprint-dashboard` | "sprint dashboard" | Sprint progress overview |
-| `codepresso:sprint-retro` | "sprint retro" | Sprint retrospective report |
-| `codepresso:generate-epic` | "generate epic" | Epic PRD document generation |
-| `codepresso:daily-chat` | "daily chat", "send morning summary" | 아침 Google Chat 인사 수동 전송 |
-| `codepresso:daily-summary` | "daily summary", "end of day summary" | 저녁 Google Chat 마감 요약 수동 전송 (월–금 18:00 크론에서도 자동 실행) |
-| `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
-| `codepresso:oncall` | "who's on call?", "이번주 온콜 누구?" | Query current on-call schedule from DynamoDB + Google Calendar |
-| `codepresso:oncall-generate` | "generate next month's oncall" | Invoke allocator Lambda to produce next month's rotation, sync to calendar |
-| `codepresso:oncall-swap` | "swap oncall", "온콜 바꿔줘" | Swap, replace, or role-swap on-call assignments for a specific week |
-| `codepresso:oncall-sync-calendar` | "sync oncall calendar" | Reconcile Google Calendar against DynamoDB (recover from missed syncs) |
-| `codepresso:oncall-seed-metadata` | "seed engineer metadata" | Seed engineer → GitHub username mapping for deploy gate verification |
-| `codepresso:oncall-runbook` | "runbook", "oncall runbook" | Look up sections of `docs/oncall-runbook.md` (sev1, rollback, etc.) |
+| `codepresso:setup` | "codepresso 설정해줘", "setup codepresso" | 대화식 설정 마법사 |
+| `codepresso:status` | "codepresso 상태" | 플러그인 상태 + 진단 |
+| `codepresso:notion-sync` | "notion 동기화" | Notion DB 작업 조회/업데이트 |
+| `codepresso:sprint-dashboard` | "스프린트 대시보드" | 스프린트 진행 개요 |
+| `codepresso:sprint-retro` | "스프린트 회고" | 스프린트 회고 보고서 |
+| `codepresso:generate-epic` | "에픽 생성" | 에픽 PRD 문서 생성 |
+| `codepresso:daily-chat` | "아침 인사" | 아침 Google Chat 인사 수동 전송 |
+| `codepresso:daily-summary` | "저녁 요약" | 저녁 Google Chat 마감 요약 (월–금 18시 크론 자동 실행도 됨) |
+| 🆕 `codepresso:scan-inbox` | "받은편지함 훑어줘", "/codepresso:scan-inbox" | Gmail + Chat 스캔 → AI 분류 → 승인 picker → Notion 작업 생성 |
+| `codepresso:deploy` | "배포" | 배포 트리거 (설정 필요) |
+| `codepresso:oncall` | "이번주 온콜 누구?" | DynamoDB + Google Calendar에서 현재 온콜 조회 |
+| `codepresso:oncall-generate` | "다음달 온콜 만들어줘" | Allocator Lambda 호출, 캘린더 동기화 |
+| `codepresso:oncall-swap` | "온콜 바꿔줘" | 특정 주의 온콜 할당 교체 |
+| `codepresso:oncall-sync-calendar` | "온콜 캘린더 동기화" | Google Calendar와 DynamoDB 재동기화 |
+| `codepresso:oncall-seed-metadata` | "엔지니어 메타데이터 시드" | 배포 게이트 검증용 매핑 시드 |
+| `codepresso:oncall-runbook` | "온콜 런북", "sev1 어떻게 처리?" | `docs/oncall-runbook.md` 섹션 조회 |
 
-## Notion Integration
+---
 
-### Task Picker + PR Auto-Linking
+## Notion 연동
 
-At session start, Codepresso fetches tasks from your Notion database and presents an interactive picker. When you select a task:
+### 작업 선택기 + PR 자동 연결
 
-1. Task status is updated to "진행 중" in Notion
-2. The task's unique ID (e.g., `TSK-9945`) is saved locally
-3. When creating a PR, the hook enforces the ID in the title: `TSK-9945 description`
-4. Notion's GitHub integration auto-links the PR to the task
+세션 시작 시 Codepresso가 Notion DB에서 작업을 가져와 대화식 picker로 표시합니다. 작업을 선택하면:
 
-**Requirements:** Your Notion database must have a `unique_id` property (built-in Notion feature) and a `status` property.
+1. Notion에서 작업 상태가 "진행 중"으로 변경
+2. 작업의 unique ID (예: `TSK-9945`)가 로컬에 저장
+3. PR 생성 시 훅이 ID를 제목에 강제: `TSK-9945 설명`
+4. Notion의 GitHub 연동이 PR을 작업에 자동 연결
 
-### MCP Tools
+**요구사항**: Notion DB에 `unique_id` 속성(Notion 내장 기능)과 `status` 속성이 있어야 합니다.
 
-Codepresso includes an MCP server for Notion:
+### MCP 도구
 
-| Tool | Description |
+Codepresso는 Notion용 MCP 서버를 포함합니다:
+
+| 도구 | 설명 |
 |------|-------------|
-| `notion_query_db` | Query a database with filters and sorts |
-| `notion_create_page` | Create a page in a database |
-| `notion_update_page` | Update page properties |
-| `notion_search` | Search pages by title |
-| `notion_get_users` | List workspace members |
+| `notion_query_db` | 필터/정렬로 DB 조회 |
+| `notion_create_page` | DB에 페이지 생성 |
+| `notion_update_page` | 페이지 속성 업데이트 |
+| `notion_search` | 제목으로 페이지 검색 |
+| `notion_get_users` | 워크스페이스 멤버 목록 |
 
-To enable, add your Notion Internal Integration Token during `codepresso:setup`.
+활성화하려면 `codepresso:setup` 중에 Notion Internal Integration Token을 입력하세요.
 
-## OMC Coexistence
+---
 
-Codepresso is designed to run alongside oh-my-claudecode without conflicts:
+## OMC 공존성
 
-| Concern | Design |
+Codepresso는 oh-my-claudecode와 충돌 없이 함께 동작하도록 설계되었습니다:
+
+| 관심사 | 설계 |
 |---------|--------|
-| State files | All prefixed `codepresso-*` in `.codepresso/state/` |
-| Config | OMC: `~/.claude/.omc-config.json`, Codepresso: `~/.codepresso/config.json` |
-| Hooks | Codepresso uses SessionStart, PreToolUse, PostToolUse only — no UserPromptSubmit |
+| 상태 파일 | 모두 `.codepresso/state/`에 `codepresso-*` 접두사로 저장 |
+| 설정 | OMC: `~/.claude/.omc-config.json`, Codepresso: `~/.codepresso/config.json` |
+| 훅 | SessionStart, PreToolUse, PostToolUse만 사용 — UserPromptSubmit 미사용 |
 
-## Prerequisites
+---
+
+## 사전 요구사항
 
 - Node.js >= 20
-- `gh` CLI installed and authenticated (`gh auth login`)
-- Notion API key (optional, for Notion features)
-- AWS CLI configured (optional, for deploy features)
-- `chat.messages.create` 스코프로 인증된 `gws` CLI (선택 — 평일 Google Chat 북엔드용)
+- `gh` CLI 설치 및 인증 (`gh auth login`)
+- Notion API 키 (선택 — Notion 기능용)
+- AWS CLI 설정 (선택 — 배포 기능용)
+- `chat.messages.create` 스코프로 인증된 `gws` CLI (선택 — 평일 Google Chat 북엔드 + 받은편지함 스캔용)
 - PATH 상의 `claude` CLI (선택 — Haiku 기반 저녁 요약용)
+- Claude.ai Gmail 커넥터 OAuth 인증 (선택 — 받은편지함 스캔의 Gmail 측용)
 
-## Directory Structure
+---
+
+## 디렉터리 구조
 
 ```
 codepresso-plugin/
-├── .claude-plugin/plugin.json     # Plugin manifest
-├── hooks/hooks.json               # 3 hook declarations (SessionStart, PreToolUse, PostToolUse)
+├── .claude-plugin/plugin.json     # 플러그인 매니페스트
+├── hooks/hooks.json               # 3개 훅 선언 (SessionStart, PreToolUse, PostToolUse)
 ├── scripts/
 │   ├── lib/
-│   │   ├── stdin.mjs              # Timeout-protected stdin reader
-│   │   ├── config.mjs             # Config loader (global + per-project)
-│   │   ├── git-utils.mjs          # Branch/PR detection
-│   │   ├── git-root.mjs           # Session gitRoot reader for hooks
-│   │   ├── logger.mjs             # Debug logger
-│   │   ├── notion-tasks.mjs       # Notion task fetcher + unique ID extraction
-│   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher
-│   │   ├── status-transitions.mjs # Task/Epic status transitions
-│   │   └── gws.mjs                # Google Chat / gws CLI helpers
-│   ├── session-start.mjs          # SessionStart: branch/PR detection + Notion task fetch + weekday morning greeting spawn
-│   ├── pre-tool-notion-inject.mjs # PreToolUse: task picker + PR title enforcement
-│   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit comment + merge transition
-│   ├── handle-merge-transition.mjs # Detached: PR merge → task complete → epic cascade
-│   ├── daily-chat-greeting.mjs    # 아침 Google Chat 인사 (detached)
-│   └── daily-chat-summary.mjs     # 저녁 Google Chat 요약 (manual or cron)
+│   │   ├── stdin.mjs              # 타임아웃 보호 stdin 리더
+│   │   ├── config.mjs             # 설정 로더 (전역 + 프로젝트별)
+│   │   ├── git-utils.mjs          # 브랜치/PR 감지
+│   │   ├── git-root.mjs           # 훅용 세션 gitRoot 리더
+│   │   ├── logger.mjs             # 디버그 로거
+│   │   ├── notion-tasks.mjs       # Notion 작업 + unique ID 추출
+│   │   ├── sprint-context.mjs     # Sprint > Epic > Task 계층 fetcher
+│   │   ├── status-transitions.mjs # 작업/에픽 상태 전이
+│   │   ├── gws.mjs                # Google Chat / gws CLI 헬퍼 (sendChatMessage + fetchChatUnread)
+│   │   ├── redactor.mjs           # 비밀 정보 마스킹 (받은편지함 스캔용)
+│   │   └── inbox-state.mjs        # 받은편지함: seen-ID dedup, 후보 JSONL, 스키마 캐시, 게이팅 + 포매터
+│   ├── session-start.mjs          # SessionStart: 브랜치/PR 감지 + Notion 작업 fetch + 아침 인사 spawn + 🆕 받은편지함 스캔 안내 주입
+│   ├── pre-tool-notion-inject.mjs # PreToolUse: 작업 picker + PR 제목 강제
+│   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit 코멘트 + 머지 전이
+│   ├── handle-merge-transition.mjs # 분리: PR 머지 → 작업 완료 → 에픽 cascade
+│   ├── daily-chat-greeting.mjs    # 아침 Google Chat 인사 (분리) — 🆕 마감 지난/오늘 마감 섹션 포함
+│   ├── daily-chat-summary.mjs     # 저녁 Google Chat 요약 (수동 또는 크론)
+│   └── inbox-cli.mjs              # 🆕 scan-inbox 스킬이 호출하는 CLI 디스패처
 ├── skills/
-│   ├── setup/SKILL.md             # Setup wizard
-│   ├── status/SKILL.md            # Plugin diagnostics
-│   ├── notion-sync/SKILL.md       # Notion task sync
-│   ├── sprint-dashboard/SKILL.md  # Sprint progress overview
-│   ├── sprint-retro/SKILL.md      # Sprint retrospective report
-│   ├── generate-epic/SKILL.md     # Epic PRD generation
-│   ├── daily-chat/SKILL.md        # 아침 Google Chat 인사 (수동 실행)
-│   ├── daily-summary/SKILL.md     # 저녁 Google Chat 요약 (수동 또는 월–금 18:00 크론)
-│   ├── deploy/SKILL.md            # Deploy trigger (optional)
-│   └── oncall*/SKILL.md           # On-call management skills
-├── tests/lib/                     # Unit tests (node:test + node:assert)
-├── mcp/notion-server.mjs          # Notion MCP server
-├── templates/workflows/           # GitHub Actions deploy templates
-├── .mcp.json                      # MCP server declaration
+│   ├── setup/SKILL.md             # 설정 마법사 (받은편지함 스캔 활성화 단계 포함)
+│   ├── status/SKILL.md            # 플러그인 진단
+│   ├── notion-sync/SKILL.md       # Notion 작업 동기화
+│   ├── sprint-dashboard/SKILL.md  # 스프린트 진행 개요
+│   ├── sprint-retro/SKILL.md      # 스프린트 회고
+│   ├── generate-epic/SKILL.md     # 에픽 PRD 생성
+│   ├── daily-chat/SKILL.md        # 아침 Google Chat 인사 (수동)
+│   ├── daily-summary/SKILL.md     # 저녁 Google Chat 요약 (수동 또는 월–금 18시 크론)
+│   ├── scan-inbox/SKILL.md        # 🆕 받은편지함 스캔 절차
+│   ├── deploy/SKILL.md            # 배포 트리거 (선택)
+│   └── oncall*/SKILL.md           # 온콜 관리 스킬들
+├── tests/lib/                     # 단위 테스트 (node:test + node:assert)
+├── mcp/notion-server.mjs          # Notion MCP 서버
+├── templates/workflows/           # GitHub Actions 배포 템플릿
+├── .mcp.json                      # MCP 서버 선언
 └── package.json
 ```
 
-## License
+---
+
+## 라이선스
 
 MIT
