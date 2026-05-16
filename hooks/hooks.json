@@ -1,18 +1,6 @@
 {
   "description": "Codepresso team workflow hooks",
   "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-logger.mjs\"",
-            "timeout": 3
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "*",
@@ -44,18 +32,6 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-end.mjs\"",
             "timeout": 5
           }
         ]

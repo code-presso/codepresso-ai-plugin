@@ -19,24 +19,14 @@ Show the current state of the Codepresso plugin for this session.
    - Show session ID (first 8 chars)
    - Show session start time
 
-2. **Read batch queue** from `.codepresso/state/codepresso-batch.jsonl`:
-   - Count pending prompts (line count)
-   - Show oldest entry timestamp if any exist
-
-3. **Read batch timer** from `.codepresso/state/codepresso-batch-timer.json`:
-   - Show when the current batch window started
-   - Calculate time until next auto-flush
-
-4. **Read config** from `~/.codepresso/config.json` and `.codepresso.json`:
-   - Show PR logging: enabled/disabled
-   - Show git tracking: enabled/disabled
-   - Show scoring: enabled/disabled + model name
-   - Show batch interval and max size
+2. **Read config** from `~/.codepresso/config.json` and `.codepresso.json`:
    - Show Notion: configured/not configured
+   - Show sprint workflow: enabled/disabled
    - Show deploy: enabled/disabled + method
+   - Show Google Chat: enabled/disabled + space ID
    - Show debug: enabled/disabled
 
-5. **Format output** as a clear status table:
+3. **Format output** as a clear status table:
 
 ```
 ## Codepresso Status
@@ -46,13 +36,10 @@ Show the current state of the Codepresso plugin for this session.
 | Branch | `feature/auth` |
 | PR | #42 (https://github.com/...) |
 | Session | `abc12345` (started 10m ago) |
-| Batch Queue | 3 prompts pending |
-| Next Flush | ~45s |
-| PR Logging | Enabled |
-| Git Tracking | Enabled |
-| Scoring | Enabled (claude-haiku-4-5-20251001) |
 | Notion | Configured (DB: abc123...) |
+| Sprint Workflow | Enabled |
 | Deploy | Disabled |
+| Google Chat | Enabled (space: AAQAxpZ...) |
 | Debug | Disabled |
 ```
 
