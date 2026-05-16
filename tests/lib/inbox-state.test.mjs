@@ -133,4 +133,9 @@ describe('inbox-state candidate JSONL', () => {
     removeCandidatesByIds(tmp, ['g1']);
     assert.deepEqual(readCandidates(tmp), []);
   });
+
+  it('removeCandidatesByIds works when candidates file never existed', () => {
+    // No prior appendCandidates call — state dir does not yet exist.
+    assert.doesNotThrow(() => removeCandidatesByIds(tmp, ['nonexistent-id']));
+  });
 });

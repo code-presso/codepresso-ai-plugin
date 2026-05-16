@@ -96,12 +96,12 @@ export function removeCandidatesByIds(cwd, ids) {
   const toRemove = new Set(ids);
   const kept = readCandidates(cwd).filter((c) => !toRemove.has(c.id));
   const path = candidatesPath(cwd);
+  mkdirSync(stateDir(cwd), { recursive: true });
   if (kept.length === 0) {
     writeFileSync(path, '', 'utf-8');
     return;
   }
   const body = kept.map((c) => JSON.stringify(c)).join('\n') + '\n';
-  mkdirSync(stateDir(cwd), { recursive: true });
   const tmp = `${path}.tmp.${randomUUID()}`;
   try {
     writeFileSync(tmp, body, 'utf-8');
