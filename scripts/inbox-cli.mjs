@@ -51,7 +51,10 @@ switch (cmd) {
       seen: loadSeen(cwd),
       leftovers: readCandidates(cwd),
       config: config.inbox || {},
-      notion: { taskDb: config.notion?.databases?.task || null, userId: config.notion?.userId || null },
+      notion: {
+        taskDb: config.inbox?.notion?.taskDatabaseId || config.notion?.databases?.task || null,
+        userId: config.notion?.userId || null,
+      },
     }, null, 2));
     break;
   }
