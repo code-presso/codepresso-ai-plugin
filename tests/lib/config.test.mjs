@@ -84,10 +84,6 @@ describe('config.mjs', () => {
 
       assert.strictEqual(typeof config, 'object');
       assert.strictEqual(config.github.token, null);
-      assert.strictEqual(config.prLogging.enabled, true);
-      assert.strictEqual(config.prLogging.batchIntervalSeconds, 60);
-      assert.strictEqual(config.scoring.enabled, true);
-      assert.strictEqual(config.scoring.model, 'claude-haiku-4-5-20251001');
       assert.strictEqual(config.deploy.enabled, false);
       assert(Array.isArray(config.excludePatterns));
       assert.strictEqual(config.excludePatterns.length, 2);
@@ -129,22 +125,17 @@ describe('config.mjs', () => {
       const config = loadConfig();
 
       // Verify structure integrity after merge
-      assert(config.prLogging);
-      assert(typeof config.prLogging.enabled === 'boolean');
-      assert(typeof config.prLogging.batchIntervalSeconds === 'number');
-
-      assert(config.scoring);
-      assert(typeof config.scoring.enabled === 'boolean');
-      assert(typeof config.scoring.model === 'string');
-
       assert(config.deploy);
       assert(typeof config.deploy.enabled === 'boolean');
+
+      assert(config.notion);
+      assert(typeof config.notion === 'object');
     });
 
     it('preserves all default sections', () => {
       const config = loadConfig('/tmp/nonexistent-codepresso-test-dir-12345', { globalConfigPath: '/tmp/nonexistent-global-codepresso-config.json' });
 
-      const expectedSections = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'epicDocs', 'excludePatterns'];
+      const expectedSections = ['github', 'notion', 'deploy', 'epicDocs', 'excludePatterns'];
       for (const section of expectedSections) {
         assert(config.hasOwnProperty(section), `Missing section: ${section}`);
       }

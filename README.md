@@ -1,14 +1,15 @@
 # Codepresso
 
-Team workflow plugin for Claude Code — GitHub PR logging, prompt scoring, optional deploy integration, and Notion task sync.
+Team workflow plugin for Claude Code — Notion task sync, sprint workflow automation, PR-linked git activity, daily Google Chat bookends, and optional deploy integration.
 
 ## What It Does
 
-- **Prompt Logging**: Automatically captures user prompts and posts batched activity logs as PR comments
-- **Prompt Scoring**: Scores each prompt 0-10 for clarity/specificity using a cheap model (Haiku) — included in PR comments
-- **Git Tracking**: Detects `git commit` and `git push` operations, logs them to the associated PR
+- **Notion Task Picker**: Pick your Notion task at session start — auto-updates status and enforces PR title format for auto-linking
+- **PR Title Enforcement**: Blocks `gh pr create` unless the title carries the selected task's unique ID (e.g. `TSK-9945`) so Notion's GitHub integration links the PR automatically
+- **Git Tracking**: Detects `git commit` on the active PR and posts a commit comment via `gh pr comment`
+- **PR Merge → Notion Transition**: Detects `gh pr merge` and transitions the linked Notion task (and epic, if applicable) to complete
+- **Sprint Workflow**: Sprint → Epic → Task hierarchy fetched at session start; cascade epic completion when all tasks are done
 - **Deploy Integration** (optional): Trigger deployments from Claude Code — ECS, CodePipeline, or custom
-- **Notion Task Picker**: Pick your Notion task at session start — auto-updates status, creates branch, and enforces PR title format for auto-linking
 - **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 오후 6시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송
 - **OMC Compatible**: Runs alongside oh-my-claudecode with zero conflicts
 - **Monorepo / Submodule Support**: Automatically detects submodule PRs when working from a monorepo root
@@ -46,18 +47,20 @@ Or manually create `~/.codepresso/config.json`:
 ```json
 {
   "github": { "token": null },
-  "notion": { "apiKey": "ntn_...", "defaultDatabaseId": "abc123" },
-  "prLogging": {
-    "enabled": true,
-    "trackGitOps": true,
-    "batchIntervalSeconds": 60,
-    "maxBatchSize": 10,
-    "truncatePromptLength": 500
-  },
-  "scoring": {
-    "enabled": true,
-    "backend": "anthropic",
-    "model": "claude-haiku-4-5-20251001"
+  "notion": {
+    "apiKey": "ntn_...",
+    "defaultDatabaseId": "abc123",
+    "databases": {
+      "sprint": "...",
+      "epic": "...",
+      "task": "..."
+    },
+    "sprintWorkflow": {
+      "enabled": true,
+      "autoTransition": true,
+      "epicAutoComplete": true,
+      "prTitleFormat": "task"
+    }
   },
   "deploy": {
     "enabled": false,
@@ -72,8 +75,6 @@ Create `.codepresso.json` in your project root to override global settings:
 
 ```json
 {
-  "prLogging": { "enabled": true, "batchIntervalSeconds": 30 },
-  "scoring": { "enabled": true },
   "deploy": {
     "enabled": true,
     "method": "ecs",
@@ -81,8 +82,7 @@ Create `.codepresso.json` in your project root to override global settings:
     "ecsCluster": "my-cluster",
     "ecsService": "my-service"
   },
-  "notion": { "databaseId": "project-specific-db-id" },
-  "excludePatterns": ["^/oh-my-claudecode:", "^(cancelomc|stopomc)$"]
+  "notion": { "defaultDatabaseId": "project-specific-db-id" }
 }
 ```
 
@@ -99,6 +99,7 @@ $ claude
 Codepresso automatically:
 - Detects your branch and PR
 - Fetches your Notion tasks (filtered by assignee)
+- On the first weekday session of the day, sends your morning summary to Google Chat (if configured)
 
 ### 2. Pick a Task
 
@@ -116,11 +117,10 @@ Which task would you like to work on?
 When you pick a task, Codepresso:
 - Updates the Notion task status to "진행 중" (In Progress)
 - Saves the selection for PR title enforcement
-- Optionally creates a feature branch (e.g., `feature/notion-pr-title-format`)
 
 ### 3. Work Normally
 
-Write code, commit, push — Codepresso silently logs everything to your PR.
+Write code, commit. Each `git commit` posts a small comment to the open PR so reviewers can follow along.
 
 ### 4. Create a PR
 
@@ -136,9 +136,9 @@ gh pr create --title "TSK-9945 Add PR title format"
 
 The `TSK-9945` prefix enables Notion's GitHub integration to **automatically link** the PR to your task — no manual connection needed.
 
-### 5. Session End
+### 5. Merge
 
-Remaining prompt logs are flushed to the PR. Done.
+When you `gh pr merge`, Codepresso transitions the linked Notion task to complete and, if the epic's last task just finished, marks the epic complete too.
 
 ---
 
@@ -151,39 +151,12 @@ When you start Claude Code, Codepresso:
 2. Detects the current branch
 3. Finds the associated PR via `gh pr list`
 4. If no PR found (e.g., monorepo root on `main`), scans submodules for active branches with open PRs
-5. Fetches your Notion tasks (with unique IDs like `TSK-9945`)
+5. Fetches your Notion tasks (with unique IDs like `TSK-9945`) and sprint context
 6. Caches everything to `.codepresso/state/codepresso-session.json` (including `gitRoot` and `activeSubmodule`)
-7. Displays PR status: `[Codepresso] PR #42 detected. Prompts will be logged.`
-
-### Prompt Logging + Scoring
-
-Every user prompt is:
-1. Checked against exclude patterns (OMC commands filtered out)
-2. Truncated to configured length
-3. Appended to a JSONL batch file
-4. Flushed to the PR as a grouped comment when the batch interval expires or max size is reached
-5. Scored 0-10 by Haiku at flush time (via Anthropic API or AWS Bedrock, depending on config)
-
-PR comments look like:
-
-```markdown
-### 🤖 Claude Code Activity Log
-
-**Session:** `abc12345` | **Branch:** `feature/auth-refactor`
-**Avg Score:** 7.3/10
-
-| Time (UTC) | Score | Prompt |
-|------------|-------|--------|
-| 14:32:05 | **9** ⭐ | Fix the authentication middleware to handle expired tokens |
-| 14:33:12 | **7** ✅ | Add unit tests for the token refresh logic |
-| 14:35:44 | **3** ⚠️ | fix it |
-```
-
-Scoring is best-effort: if `ANTHROPIC_API_KEY` is missing or scoring is disabled, comments are posted without scores (same as before).
 
 ### Git Tracking
 
-When Claude Code runs `git commit` or `git push`, Codepresso posts:
+When Claude Code runs `git commit` and a PR exists, Codepresso posts:
 
 ```markdown
 ### 🤖 Git Activity
@@ -266,12 +239,19 @@ Then say "deploy to staging" in Claude Code.
 |-------|---------|-------------|
 | `codepresso:setup` | "setup codepresso" | Interactive configuration wizard |
 | `codepresso:status` | "codepresso status" | Plugin status and diagnostics |
-| `codepresso:log` | "codepresso log" | Manually flush prompts with scoring to PR |
-| `codepresso:dashboard` | "codepresso dashboard" | Team analytics dashboard |
 | `codepresso:notion-sync` | "sync notion tasks" | Query/update Notion database tasks |
+| `codepresso:sprint-dashboard` | "sprint dashboard" | Sprint progress overview |
+| `codepresso:sprint-retro` | "sprint retro" | Sprint retrospective report |
+| `codepresso:generate-epic` | "generate epic" | Epic PRD document generation |
 | `codepresso:daily-chat` | "daily chat", "send morning summary" | 아침 Google Chat 인사 수동 전송 |
 | `codepresso:daily-summary` | "daily summary", "end of day summary" | 저녁 Google Chat 마감 요약 수동 전송 (월–금 18:00 크론에서도 자동 실행) |
 | `codepresso:deploy` | "deploy", "deploy to" | Trigger deployment (requires config) |
+| `codepresso:oncall` | "who's on call?", "이번주 온콜 누구?" | Query current on-call schedule from DynamoDB + Google Calendar |
+| `codepresso:oncall-generate` | "generate next month's oncall" | Invoke allocator Lambda to produce next month's rotation, sync to calendar |
+| `codepresso:oncall-swap` | "swap oncall", "온콜 바꿔줘" | Swap, replace, or role-swap on-call assignments for a specific week |
+| `codepresso:oncall-sync-calendar` | "sync oncall calendar" | Reconcile Google Calendar against DynamoDB (recover from missed syncs) |
+| `codepresso:oncall-seed-metadata` | "seed engineer metadata" | Seed engineer → GitHub username mapping for deploy gate verification |
+| `codepresso:oncall-runbook` | "runbook", "oncall runbook" | Look up sections of `docs/oncall-runbook.md` (sev1, rollback, etc.) |
 
 ## Notion Integration
 
@@ -306,10 +286,9 @@ Codepresso is designed to run alongside oh-my-claudecode without conflicts:
 
 | Concern | Design |
 |---------|--------|
-| Both have UserPromptSubmit hooks | Both return `{ continue: true }`. Codepresso is silent (no additionalContext on prompts) |
 | State files | All prefixed `codepresso-*` in `.codepresso/state/` |
 | Config | OMC: `~/.claude/.omc-config.json`, Codepresso: `~/.codepresso/config.json` |
-| Keywords | Codepresso has zero magic keywords. `excludePatterns` filters OMC commands |
+| Hooks | Codepresso uses SessionStart, PreToolUse, PostToolUse only — no UserPromptSubmit |
 
 ## Prerequisites
 
@@ -325,40 +304,37 @@ Codepresso is designed to run alongside oh-my-claudecode without conflicts:
 ```
 codepresso-plugin/
 ├── .claude-plugin/plugin.json     # Plugin manifest
-├── hooks/hooks.json               # 5 hook declarations
+├── hooks/hooks.json               # 3 hook declarations (SessionStart, PreToolUse, PostToolUse)
 ├── scripts/
 │   ├── lib/
 │   │   ├── stdin.mjs              # Timeout-protected stdin reader
 │   │   ├── config.mjs             # Config loader (global + per-project)
 │   │   ├── git-utils.mjs          # Branch/PR detection
 │   │   ├── git-root.mjs           # Session gitRoot reader for hooks
-│   │   ├── pr-comment.mjs         # Batched PR comment posting
-│   │   ├── prompt-scorer.mjs      # Prompt scoring via Anthropic API
-│   │   ├── redactor.mjs           # Sensitive data redaction
-│   │   ├── rate-limiter.mjs       # PR comment rate limiting
 │   │   ├── logger.mjs             # Debug logger
-│   │   ├── analytics.mjs          # Analytics persistence
-│   │   └── notion-tasks.mjs       # Notion task fetcher + unique ID extraction
+│   │   ├── notion-tasks.mjs       # Notion task fetcher + unique ID extraction
+│   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher
+│   │   ├── status-transitions.mjs # Task/Epic status transitions
+│   │   └── gws.mjs                # Google Chat / gws CLI helpers
 │   ├── session-start.mjs          # SessionStart: branch/PR detection + Notion task fetch + weekday morning greeting spawn
 │   ├── pre-tool-notion-inject.mjs # PreToolUse: task picker + PR title enforcement
-│   ├── user-prompt-logger.mjs     # UserPromptSubmit: batch prompts silently
-│   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit/push tracking
-│   ├── session-end.mjs            # Stop: force-flush remaining batch
-│   ├── score-and-post.mjs         # Detached scorer + poster
-│   ├── daily-chat-greeting.mjs    # 아침 Google Chat 인사 (detached): 작업 + 오픈 PR + 리뷰 요청 PR
-│   ├── daily-chat-summary.mjs     # 저녁 Google Chat 요약: 커밋 + 닫힌 PR + 작업, claude -p로 서술
-│   └── manual-flush.mjs           # CLI: on-demand scored flush to PR
+│   ├── post-tool-git-watcher.mjs  # PostToolUse:Bash: git commit comment + merge transition
+│   ├── handle-merge-transition.mjs # Detached: PR merge → task complete → epic cascade
+│   ├── daily-chat-greeting.mjs    # 아침 Google Chat 인사 (detached)
+│   └── daily-chat-summary.mjs     # 저녁 Google Chat 요약 (manual or cron)
 ├── skills/
 │   ├── setup/SKILL.md             # Setup wizard
 │   ├── status/SKILL.md            # Plugin diagnostics
-│   ├── log/SKILL.md               # Manual PR summary posting
-│   ├── dashboard/SKILL.md         # Team analytics dashboard
 │   ├── notion-sync/SKILL.md       # Notion task sync
+│   ├── sprint-dashboard/SKILL.md  # Sprint progress overview
+│   ├── sprint-retro/SKILL.md      # Sprint retrospective report
+│   ├── generate-epic/SKILL.md     # Epic PRD generation
 │   ├── daily-chat/SKILL.md        # 아침 Google Chat 인사 (수동 실행)
 │   ├── daily-summary/SKILL.md     # 저녁 Google Chat 요약 (수동 또는 월–금 18:00 크론)
-│   └── deploy/SKILL.md            # Deploy trigger (optional)
+│   ├── deploy/SKILL.md            # Deploy trigger (optional)
+│   └── oncall*/SKILL.md           # On-call management skills
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
-├── mcp/notion-server.mjs          # Notion MCP server (5 tools)
+├── mcp/notion-server.mjs          # Notion MCP server
 ├── templates/workflows/           # GitHub Actions deploy templates
 ├── .mcp.json                      # MCP server declaration
 └── package.json
