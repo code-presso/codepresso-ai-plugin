@@ -17,7 +17,6 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { getSidecarPath } from './lib/pr-comment.mjs';
 
 const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
@@ -141,13 +140,8 @@ async function main() {
     // Build context parts
     const contextParts = [];
 
-    // PR context only if prLogging is enabled
-    if (config.prLogging?.enabled) {
-      if (pr) {
-        contextParts.push(`[Codepresso] PR #${pr.number} detected on branch \`${branch}\`. Prompts will be logged.`);
-      } else if (!onMainBranch) {
-        contextParts.push(`[Codepresso] Branch \`${branch}\` — no open PR found. Prompt logging disabled.`);
-      }
+    if (pr) {
+      contextParts.push(`[Codepresso] PR #${pr.number} detected on branch \`${branch}\`.`);
     }
 
     // Fetch Notion tasks + sprint context in parallel (non-blocking, timeout-protected)
@@ -228,7 +222,6 @@ async function main() {
       prUrl: pr?.url || null,
       sessionId,
       startedAt: new Date().toISOString(),
-      labelsApplied: {},
       headCommit: getHeadCommit(gitRoot),
       notionContext,
       notionTasks,
@@ -240,23 +233,6 @@ async function main() {
 
     ensureStateDir();
     writeFileSync(SESSION_FILE, JSON.stringify(sessionState, null, 2), 'utf-8');
-
-    // Fix 3: If a PR is detected, check for a sidecar of pre-PR planning prompts
-    // from a prior session on this branch and backfill them into the PR.
-    if (pr && branch) {
-      const sidecarPath = getSidecarPath(branch);
-      if (existsSync(sidecarPath)) {
-        const scriptPath = join(dirname(fileURLToPath(import.meta.url)), 'backfill-flush.mjs');
-        const child = spawn('node', [scriptPath], {
-          cwd: gitRoot,
-          detached: true,
-          stdio: 'ignore',
-        });
-        child.unref();
-        contextParts.push(`[Codepresso] Pre-PR planning prompts found — flushing to PR #${pr.number}.`);
-        log.info(`Sidecar found for branch ${branch} — spawning backfill flush to PR #${pr.number}`);
-      }
-    }
 
     if (contextParts.length === 0) {
       process.stdout.write(JSON.stringify({ continue: true }));

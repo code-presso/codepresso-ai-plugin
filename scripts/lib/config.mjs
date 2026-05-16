@@ -30,19 +30,6 @@ const DEFAULT_CONFIG = {
       prTitleFormat: 'task',    // "task" | "epic+task" | "epic"
     },
   },
-  prLogging: {
-    enabled: true,
-    trackGitOps: true,
-    batchIntervalSeconds: 60,
-    maxBatchSize: 10,
-    truncatePromptLength: 500,
-  },
-  scoring: {
-    enabled: true,
-    backend: 'anthropic',           // 'anthropic' | 'bedrock'
-    model: 'claude-haiku-4-5-20251001',
-    awsRegion: 'us-east-1',        // Only used when backend is 'bedrock'
-  },
   deploy: {
     enabled: false,
     method: null,
@@ -50,34 +37,6 @@ const DEFAULT_CONFIG = {
     ecsCluster: null,
     ecsService: null,
     pipelineName: null,
-  },
-  redaction: {
-    enabled: true,
-    extraPatterns: [],
-  },
-  rateLimit: {
-    maxCommentsPerHour: 10,
-    maxCommentsPerSession: 50,
-  },
-  analytics: {
-    enabled: true,
-    retentionDays: 90,
-  },
-  prLabels: {
-    enabled: true,
-    labels: ['ai-assisted'],
-  },
-  trivialFilter: {
-    enabled: true,
-    minPromptLength: 20,
-    trivialPatterns: [
-      'ok', 'okay', '확인', '네', '응', 'ㅇㅇ',
-      'yes', 'no', 'sure', 'thanks', 'thx', 'ty',
-      'push', 'pull', 'done', 'next', 'go', 'run',
-      'lgtm', '좋아', 'ㄱㄱ', 'y', 'n', 'continue', 'proceed',
-      'also', 'right', 'got it', 'alright', 'sounds good', 'go ahead',
-      '그래', '맞아', '알겠어', '해줘', 'ㅇㅋ',
-    ],
   },
   epicDocs: {
     enabled: true,
@@ -231,37 +190,10 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'prLogging', 'scoring', 'deploy', 'redaction', 'rateLimit', 'analytics', 'prLabels', 'trivialFilter', 'epicDocs', 'cloudDev', 'googleChat', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
-    }
-  }
-
-  // Type checks
-  if (config.prLogging) {
-    const pl = config.prLogging;
-    if (typeof pl.enabled !== 'undefined' && typeof pl.enabled !== 'boolean') {
-      warnings.push(`prLogging.enabled should be boolean, got ${typeof pl.enabled}`);
-    }
-    if (typeof pl.batchIntervalSeconds === 'number' && pl.batchIntervalSeconds <= 0) {
-      warnings.push(`prLogging.batchIntervalSeconds must be > 0, got ${pl.batchIntervalSeconds}`);
-    }
-    if (typeof pl.maxBatchSize === 'number' && pl.maxBatchSize <= 0) {
-      warnings.push(`prLogging.maxBatchSize must be > 0, got ${pl.maxBatchSize}`);
-    }
-    if (typeof pl.truncatePromptLength === 'number' && pl.truncatePromptLength <= 0) {
-      warnings.push(`prLogging.truncatePromptLength must be > 0, got ${pl.truncatePromptLength}`);
-    }
-  }
-
-  if (config.scoring) {
-    if (typeof config.scoring.enabled !== 'undefined' && typeof config.scoring.enabled !== 'boolean') {
-      warnings.push(`scoring.enabled should be boolean, got ${typeof config.scoring.enabled}`);
-    }
-    const validBackends = ['anthropic', 'bedrock'];
-    if (config.scoring.backend && !validBackends.includes(config.scoring.backend)) {
-      warnings.push(`scoring.backend "${config.scoring.backend}" is not valid. Use: ${validBackends.join(', ')}`);
     }
   }
 
@@ -269,33 +201,6 @@ export function validateConfig(config) {
     const validMethods = [null, 'ecs', 'codepipeline', 'workflow', 'custom'];
     if (config.deploy.method && !validMethods.includes(config.deploy.method)) {
       warnings.push(`deploy.method "${config.deploy.method}" is not valid. Use: ${validMethods.filter(Boolean).join(', ')}`);
-    }
-  }
-
-  if (config.redaction) {
-    if (typeof config.redaction.enabled !== 'undefined' && typeof config.redaction.enabled !== 'boolean') {
-      warnings.push(`redaction.enabled should be boolean, got ${typeof config.redaction.enabled}`);
-    }
-    if (config.redaction.extraPatterns && !Array.isArray(config.redaction.extraPatterns)) {
-      warnings.push(`redaction.extraPatterns should be an array, got ${typeof config.redaction.extraPatterns}`);
-    }
-  }
-
-  if (config.rateLimit) {
-    if (typeof config.rateLimit.maxCommentsPerHour === 'number' && config.rateLimit.maxCommentsPerHour <= 0) {
-      warnings.push(`rateLimit.maxCommentsPerHour must be > 0, got ${config.rateLimit.maxCommentsPerHour}`);
-    }
-    if (typeof config.rateLimit.maxCommentsPerSession === 'number' && config.rateLimit.maxCommentsPerSession <= 0) {
-      warnings.push(`rateLimit.maxCommentsPerSession must be > 0, got ${config.rateLimit.maxCommentsPerSession}`);
-    }
-  }
-
-  if (config.analytics) {
-    if (typeof config.analytics.enabled !== 'undefined' && typeof config.analytics.enabled !== 'boolean') {
-      warnings.push(`analytics.enabled should be boolean, got ${typeof config.analytics.enabled}`);
-    }
-    if (typeof config.analytics.retentionDays === 'number' && config.analytics.retentionDays <= 0) {
-      warnings.push(`analytics.retentionDays must be > 0, got ${config.analytics.retentionDays}`);
     }
   }
 
@@ -324,15 +229,6 @@ export function validateConfig(config) {
           warnings.push(`notion.databases.${dbKey} should be a string, got ${typeof dbs[dbKey]}`);
         }
       }
-    }
-  }
-
-  if (config.prLabels) {
-    if (typeof config.prLabels.enabled !== 'undefined' && typeof config.prLabels.enabled !== 'boolean') {
-      warnings.push(`prLabels.enabled should be boolean, got ${typeof config.prLabels.enabled}`);
-    }
-    if (config.prLabels.labels && !Array.isArray(config.prLabels.labels)) {
-      warnings.push(`prLabels.labels should be an array, got ${typeof config.prLabels.labels}`);
     }
   }
 

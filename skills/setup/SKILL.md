@@ -5,17 +5,16 @@ description: Interactive setup wizard for Codepresso
 
 <Purpose>
 Guide the user through configuring Codepresso: verify prerequisites (gh CLI, Notion API key),
-set logging preferences, and write config files.
+configure Notion/sprint workflow integration, and write config files.
 </Purpose>
 
 <Use_When>
 - User says "setup codepresso" or "codepresso setup"
-- User wants to configure PR logging or Notion integration
+- User wants to configure Notion integration or sprint workflow
 - First time using Codepresso in a project
 </Use_When>
 
 <Do_Not_Use_When>
-- User just wants to log a prompt manually (use `codepresso:log`)
 - User wants to sync Notion tasks (use `codepresso:notion-sync`)
 </Do_Not_Use_When>
 
@@ -89,17 +88,12 @@ set logging preferences, and write config files.
      }
      ```
 
-6. **PR logging preferences**
-   - Ask for batch interval (default: 60s)
-   - Ask for max batch size (default: 10)
-   - Ask for prompt truncation length (default: 500 chars)
-
-7. **Write configuration**
+6. **Write configuration**
    - Write global config to `~/.codepresso/config.json`
    - Optionally write per-project `.codepresso.json`
    - Add `.codepresso.json` pattern to `.gitignore` if it contains secrets
 
-8. **Configure MCP tool permissions**
+7. **Configure MCP tool permissions**
    - Create `.claude/settings.local.json` (if not exists) to auto-allow Notion MCP tools:
      ```json
      {
@@ -114,7 +108,7 @@ set logging preferences, and write config files.
    - If the file already exists, merge the `permissions.allow` entries without overwriting existing ones
    - This prevents permission prompts when running sprint-dashboard, sprint-retro, and notion-sync skills
 
-9. **Verify setup**
+8. **Verify setup**
    - Start a test by detecting current branch and PR
    - If sprint workflow enabled, test sprint fetch: query sprint DB for current sprint
    - Confirm everything works
