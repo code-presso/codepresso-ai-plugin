@@ -139,3 +139,89 @@ describe('inbox-state candidate JSONL', () => {
     assert.doesNotThrow(() => removeCandidatesByIds(tmp, ['nonexistent-id']));
   });
 });
+
+import {
+  loadSchemaCache, saveSchemaCache, isSchemaCacheStale,
+  shouldRunInboxScan,
+  formatReminderSections,
+} from '../../scripts/lib/inbox-state.mjs';
+
+describe('inbox-state schema cache', () => {
+  let tmp;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'cp-inbox-')); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it('returns null when no cache exists', () => {
+    assert.equal(loadSchemaCache(tmp), null);
+  });
+
+  it('roundtrips through save/load', () => {
+    saveSchemaCache(tmp, { taskDb: { id: 'db1', titleProp: '이름', statusProp: '상태' } });
+    const got = loadSchemaCache(tmp);
+    assert.equal(got.taskDb.titleProp, '이름');
+    assert.ok(got.taskDb.fetchedAt);
+  });
+
+  it('isSchemaCacheStale flags caches older than 7 days', () => {
+    const stale = { taskDb: { fetchedAt: new Date(Date.now() - 8 * 86400 * 1000).toISOString() } };
+    const fresh = { taskDb: { fetchedAt: new Date().toISOString() } };
+    assert.equal(isSchemaCacheStale(stale), true);
+    assert.equal(isSchemaCacheStale(fresh), false);
+    assert.equal(isSchemaCacheStale(null), true);
+  });
+});
+
+describe('inbox-state shouldRunInboxScan', () => {
+  const baseConfig = { inbox: { enabled: true } };
+
+  it('returns false when inbox.enabled is false', () => {
+    assert.equal(shouldRunInboxScan({ inbox: { enabled: false } }, '2026-05-13', null, 3), false);
+  });
+
+  it('returns false on Saturday (dayOfWeek=6) and Sunday (0)', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-16', null, 6), false);
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-17', null, 0), false);
+  });
+
+  it('returns true on a weekday when lastRunDate is missing', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-13', null, 3), true);
+  });
+
+  it('returns false when lastRunDate equals today', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-13', '2026-05-13', 3), false);
+  });
+
+  it('returns true when lastRunDate is an older weekday', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-18', '2026-05-15', 1), true);
+  });
+});
+
+describe('inbox-state formatReminderSections', () => {
+  it('returns empty string when both buckets empty', () => {
+    assert.equal(formatReminderSections([], [], { maxPerSection: 5 }), '');
+  });
+
+  it('renders overdue with days-late and due-today bullet sections', () => {
+    const todayMs = Date.parse('2026-05-13T00:00:00+09:00');
+    const overdue = [
+      { title: 'Send Q3 budget', uniqueId: 'TSK-12345', dueDate: '2026-05-10T18:00:00+09:00' },
+    ];
+    const dueToday = [
+      { title: 'Review onboarding', uniqueId: 'TSK-12346', dueDate: '2026-05-13T18:00:00+09:00' },
+    ];
+    const out = formatReminderSections(overdue, dueToday, { maxPerSection: 5, now: todayMs });
+    assert.ok(out.includes('Overdue (1)'));
+    assert.ok(out.includes('TSK-12345'));
+    assert.ok(out.includes('days late') || out.includes('day late'));
+    assert.ok(out.includes('Due today (1)'));
+    assert.ok(out.includes('TSK-12346'));
+  });
+
+  it('caps bullets per section and shows "... and N more" tail', () => {
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      title: `T${i}`, uniqueId: `TSK-${i}`, dueDate: '2026-05-13T18:00:00+09:00',
+    }));
+    const out = formatReminderSections([], rows, { maxPerSection: 5, now: Date.parse('2026-05-13T00:00:00+09:00') });
+    assert.ok(out.includes('... and 2 more'));
+  });
+});

@@ -91,6 +91,68 @@ export function readCandidates(cwd) {
   }
 }
 
+const SCHEMA_TTL_DAYS = 7;
+
+function schemaCachePath(cwd) {
+  return join(stateDir(cwd), 'codepresso-inbox-cache.json');
+}
+
+export function loadSchemaCache(cwd) {
+  return readJsonSafe(schemaCachePath(cwd), null);
+}
+
+export function saveSchemaCache(cwd, cache) {
+  const stamped = {
+    ...cache,
+    taskDb: { ...cache.taskDb, fetchedAt: new Date().toISOString() },
+  };
+  writeJsonAtomic(schemaCachePath(cwd), stamped);
+}
+
+export function isSchemaCacheStale(cache) {
+  if (!cache?.taskDb?.fetchedAt) return true;
+  const age = Date.now() - Date.parse(cache.taskDb.fetchedAt);
+  return age > SCHEMA_TTL_DAYS * 86400 * 1000;
+}
+
+export function shouldRunInboxScan(config, todayDate, lastRunDate, dayOfWeek) {
+  if (!config?.inbox?.enabled) return false;
+  if (dayOfWeek === 0 || dayOfWeek === 6) return false;
+  if (lastRunDate && lastRunDate === todayDate) return false;
+  return true;
+}
+
+export function formatReminderSections(overdue, dueToday, opts) {
+  const max = opts.maxPerSection ?? 5;
+  const nowMs = opts.now ?? Date.now();
+  const lines = [];
+
+  const renderBullet = (row, withDaysLate = false) => {
+    const id = row.uniqueId ? `[${row.uniqueId}] ` : '';
+    if (withDaysLate) {
+      const daysLate = Math.floor((nowMs - Date.parse(row.dueDate)) / (86400 * 1000));
+      const suffix = daysLate <= 0 ? '' : ` — ${daysLate} day${daysLate === 1 ? '' : 's'} late`;
+      return `  • ${id}${row.title}${suffix}`;
+    }
+    return `  • ${id}${row.title}`;
+  };
+
+  if (overdue.length > 0) {
+    lines.push(`🔥 Overdue (${overdue.length}):`);
+    overdue.slice(0, max).forEach((r) => lines.push(renderBullet(r, true)));
+    if (overdue.length > max) lines.push(`  ... and ${overdue.length - max} more`);
+  }
+
+  if (dueToday.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push(`⏰ Due today (${dueToday.length}):`);
+    dueToday.slice(0, max).forEach((r) => lines.push(renderBullet(r, false)));
+    if (dueToday.length > max) lines.push(`  ... and ${dueToday.length - max} more`);
+  }
+
+  return lines.join('\n');
+}
+
 export function removeCandidatesByIds(cwd, ids) {
   if (!ids?.length) return;
   const toRemove = new Set(ids);
