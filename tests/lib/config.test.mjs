@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { isExcluded, isSetupComplete, ensureSetup, loadConfig, getStateDir } from '../../scripts/lib/config.mjs';
-import { existsSync, unlinkSync, rmdirSync } from 'node:fs';
+import { isExcluded, isSetupComplete, ensureSetup, loadConfig, getStateDir, validateConfig } from '../../scripts/lib/config.mjs';
+import { existsSync, unlinkSync, rmdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -164,4 +164,47 @@ describe('config.mjs', () => {
     });
   });
 
+});
+
+describe('inbox config defaults', () => {
+  it('exposes inbox section with disabled-by-default master switch', () => {
+    const cfg = loadConfig(mkdtempSync(join(tmpdir(), 'cp-cfg-')), {
+      globalConfigPath: join(tmpdir(), 'nonexistent-global.json'),
+    });
+    assert.equal(cfg.inbox.enabled, false);
+    assert.equal(cfg.inbox.sources.gmail.enabled, true);
+    assert.equal(cfg.inbox.sources.gmail.lookbackHours, 24);
+    assert.equal(cfg.inbox.sources.chat.enabled, true);
+    assert.deepEqual(cfg.inbox.sources.chat.spaceIds, []);
+    assert.ok(Array.isArray(cfg.inbox.ignoreSenders));
+    assert.equal(cfg.inbox.classifier.maxCandidatesPerScan, 10);
+    assert.equal(cfg.inbox.notion.dueDateProperty, '마감일');
+    assert.equal(cfg.inbox.notion.defaultDueOption, 'Tomorrow');
+    assert.equal(cfg.inbox.reminder.showOverdue, true);
+    assert.equal(cfg.inbox.reminder.showDueToday, true);
+    assert.equal(cfg.inbox.reminder.maxPerSection, 5);
+  });
+
+  it('merges project-level inbox overrides without dropping defaults', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'cp-cfg-'));
+    writeFileSync(
+      join(cwd, '.codepresso.json'),
+      JSON.stringify({ inbox: { enabled: true, classifier: { maxCandidatesPerScan: 5 } } }),
+    );
+    const cfg = loadConfig(cwd, { globalConfigPath: join(tmpdir(), 'nonexistent-global.json') });
+    assert.equal(cfg.inbox.enabled, true);
+    assert.equal(cfg.inbox.classifier.maxCandidatesPerScan, 5);
+    assert.equal(cfg.inbox.notion.dueDateProperty, '마감일');
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('does not flag inbox as an unknown config key', () => {
+    const warnings = validateConfig({ inbox: { enabled: true } });
+    assert.equal(warnings.filter((w) => w.includes('Unknown config key: "inbox"')).length, 0);
+  });
+
+  it('flags inbox.enabled type error', () => {
+    const warnings = validateConfig({ inbox: { enabled: 'yes' } });
+    assert.ok(warnings.some((w) => w.includes('inbox.enabled') && w.includes('boolean')));
+  });
 });
