@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createLogger } from './lib/logger.mjs';
+import { loadConfig } from './lib/config.mjs';
 import { sendChatMessage } from './lib/gws.mjs';
 import { Client as NotionClient } from '@notionhq/client';
 import { formatReminderSections } from './lib/inbox-state.mjs';
@@ -247,11 +248,7 @@ function formatMessage(tasks, prs, displayName) {
   const summary = `총 작업 ${inProgress.length}개 · 내 PR ${authored.length}개 · 리뷰 대기 ${reviewRequested.length}개`;
   lines.push(summary);
 
-  const phrase = generateDailyPhrase(inProgress.length);
-  lines.push('');
-  lines.push(`💬 _${phrase}_`);
-
-  return lines.join('\n');
+  return { text: lines.join('\n'), taskCount: inProgress.length };
 }
 
 /**
@@ -289,7 +286,8 @@ async function main() {
     // ignore
   }
 
-  const { tasks, spaceId, displayName, gitRoot, config } = payload;
+  const { tasks, spaceId, displayName, gitRoot } = payload;
+  const config = loadConfig(gitRoot || process.cwd());
 
   if (!spaceId) {
     log.error('No spaceId configured — skipping greeting');
@@ -310,9 +308,10 @@ async function main() {
     return;
   }
 
-  let message = formatMessage(activeTasks, prs, displayName);
+  const { text: baseMessage, taskCount } = formatMessage(activeTasks, prs, displayName);
+  let message = baseMessage;
 
-  // Append overdue / due-today reminder sections when inbox feature is enabled
+  // Append overdue / due-today reminder sections (before motivational phrase)
   const reminderConfig = config?.inbox?.reminder || {};
   if (config?.inbox?.enabled && (reminderConfig.showOverdue || reminderConfig.showDueToday)) {
     const { overdue, dueToday } = await queryReminderTasks(config);
@@ -327,6 +326,10 @@ async function main() {
       message = message ? `${message}\n\n${reminderText}` : reminderText;
     }
   }
+
+  // Motivational phrase is always the closing line
+  const phrase = generateDailyPhrase(taskCount);
+  message = `${message}\n\n💬 _${phrase}_`;
 
   try {
     sendChatMessage(spaceId, message);
