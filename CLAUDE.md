@@ -28,7 +28,8 @@ codepresso-plugin/
 │   │   ├── analytics.mjs          # Analytics persistence (sessions.jsonl)
 │   │   ├── notion-tasks.mjs       # Notion task fetcher with unique ID extraction
 │   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher with PROPERTY_TYPES
-│   │   └── status-transitions.mjs # Task/Epic status transitions with Notion API
+│   │   ├── status-transitions.mjs # Task/Epic status transitions with Notion API
+│   │   └── inbox-state.mjs        # Seen-ID dedup, candidate JSONL, schema cache, gating + formatter helpers
 │   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, daily greeting, cache state
 │   ├── daily-chat-greeting.mjs   # Detached process: send weekday morning Google Chat greeting (Notion tasks + GitHub PRs)
 │   ├── daily-chat-summary.mjs     # Evening (18:00) summary: today's commits + merged/closed PRs + in-progress tasks, Claude-summarized
@@ -38,7 +39,8 @@ codepresso-plugin/
 │   ├── session-end.mjs            # Stop hook: force-flush remaining batch
 │   ├── score-and-post.mjs         # Detached process: score batch + post PR comment
 │   ├── backfill-flush.mjs         # Detached: flush pending + sidecar entries when PR is discovered
-│   └── handle-merge-transition.mjs # Detached: PR merge → task complete → epic cascade
+│   ├── handle-merge-transition.mjs # Detached: PR merge → task complete → epic cascade
+│   └── inbox-cli.mjs              # CLI dispatcher invoked by the scan-inbox skill (prep/redact/stage/complete/schema-cache)
 ├── skills/
 │   ├── setup/SKILL.md             # Interactive setup wizard
 │   ├── log/SKILL.md               # Manual PR summary posting
@@ -50,7 +52,8 @@ codepresso-plugin/
 │   ├── sprint-retro/SKILL.md      # Sprint retrospective report
 │   ├── generate-epic/SKILL.md    # Epic PRD document generation
 │   ├── daily-chat/SKILL.md      # Morning Google Chat greeting (manual trigger)
-│   └── daily-summary/SKILL.md   # Evening Google Chat summary (manual or 18:00 cron trigger)
+│   ├── daily-summary/SKILL.md   # Evening Google Chat summary (manual or 18:00 cron trigger)
+│   └── scan-inbox/SKILL.md        # Inbox triage routine (Gmail + Chat → Notion tasks with due dates)
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing 9 Notion API tools (5 base + 4 sprint)
@@ -78,6 +81,10 @@ PR Create → PostToolUse:Bash hook → extract PR number → update session →
 Git Commit → PostToolUse:Bash hook → verify PR exists → detached `gh pr comment`
 First Tool → PreToolUse hook → inject task picker (AskUserQuestion) → user selects task → save to file
 PR Merge → PostToolUse:Bash hook → detect `gh pr merge` → spawn handle-merge-transition.mjs
+Inbox scan      → /codepresso:scan-inbox OR morning session-start instruction
+                → claude_ai_Gmail + gws fetchChatUnread → filter by seen-IDs
+                → classify in-conversation → inbox-cli stage → AskUserQuestion (paginated)
+                → per-task due date → claude_ai_Notion create-pages → inbox-cli complete
 ```
 
 ---
@@ -151,6 +158,10 @@ Users typically plan before creating a PR. Without special handling, all prompts
 ### 11. Sprint Workflow — Forward-Only Relations
 The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개발팀 에픽`, Epic→Task via `관계형 그룹`). Reverse relation property names are fragile and user-editable. The `PROPERTY_TYPES` constant in `sprint-context.mjs` centralizes all property names and types for Sprint, Epic, and Task databases. **Critical:** Sprint and Epic DBs use `select` type for 상태, while Task DB uses `status` type — these require different Notion API shapes for updates.
 
+### 12. Inbox Task Tracker — Claude-Driven Routine
+
+Tasks arriving via Gmail or Google Chat are surfaced by a markdown skill (`skills/scan-inbox/SKILL.md`) that Claude follows in-conversation. Deterministic state ops (seen-ID dedup, candidate persistence, schema cache, redaction) are isolated in `scripts/lib/inbox-state.mjs` and exposed via `scripts/inbox-cli.mjs` — the skill calls the CLI for any state mutation. Source fetching uses the official `mcp__claude_ai_Gmail` connector for email and `gws` CLI for Chat. Notion writes use the official `mcp__claude_ai_Notion` connector. The morning trigger is a single `additionalContext` line injected by `session-start.mjs` on the first weekday session of the day (gated by `~/.codepresso/inbox-last-run.json`). Reminders for due-today + overdue tasks are appended to the existing `daily-chat-greeting.mjs` Chat message via `formatReminderSections`. The entire feature ships behind `inbox.enabled: false` until the setup wizard flips it.
+
 ---
 
 ## Hook Contracts
@@ -213,12 +224,16 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
 | `codepresso-merge-{N}.json` | JSON | Temporary payload for detached merge handler (auto-cleaned) |
 | `codepresso-prepr-{branch}.jsonl` | JSONL | Branch sidecar: pre-PR planning prompts persisted across sessions. Written at session end when no PR exists; merged into first flush after PR is created; cleared after successful post. Branch name is slugified (non-alphanumeric → `-`, max 80 chars). |
 | `codepresso-greeting-{ts}.json` | JSON | Temporary payload for daily greeting (auto-cleaned) |
+| `codepresso-inbox-seen.json` | JSON | Dedup: source IDs already triaged. Pruned to 30 days on every write. |
+| `codepresso-inbox-candidates.jsonl` | JSONL | Pending candidates between scan and approval. Survives across interrupted runs. |
+| `codepresso-inbox-cache.json` | JSON | Cached Notion task-DB property names. 7-day TTL. |
 
 **Daily greeting state** (separate location: `~/.codepresso/`):
 
 | File | Format | Purpose |
 |------|--------|---------|
 | `daily-greeting.json` | JSON | Last greeting date (`{ lastDate: "YYYY-MM-DD" }`) |
+| `inbox-last-run.json` | JSON | Last date the inbox scan instruction was injected (`{ lastDate: "YYYY-MM-DD" }`) |
 
 **Analytics data** (separate location: `~/.codepresso/analytics/`):
 
@@ -297,6 +312,17 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
     "enabled": false,                              // Enable Google Chat integration
     "dailyGreeting": true,                         // Send daily task summary on first session
     "spaceId": null                                // Google Chat space ID (e.g., "AAQAxpZZ_aE")
+  },
+  "inbox": {
+    "enabled": false,
+    "sources": {
+      "gmail": { "enabled": true, "lookbackHours": 24, "query": "in:inbox is:unread -category:promotions -category:social", "maxResults": 30 },
+      "chat":  { "enabled": true, "lookbackHours": 24, "spaceIds": [], "maxPerSpace": 20 }
+    },
+    "ignoreSenders": ["noreply@", "notifications@github\\.com", "no-reply@"],
+    "classifier": { "maxCandidatesPerScan": 10 },
+    "notion": { "taskDatabaseId": null, "dueDateProperty": "마감일", "defaultDueOption": "Tomorrow" },
+    "reminder": { "showOverdue": true, "showDueToday": true, "maxPerSection": 5 }
   },
   "excludePatterns": [                             // Regex patterns to skip logging
     "^/oh-my-claudecode:",
