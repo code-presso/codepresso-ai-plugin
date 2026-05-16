@@ -56,4 +56,32 @@ describe('inbox-cli', () => {
     const out = JSON.parse(run(['prep'], { cwd: tmp }));
     assert.equal(out.leftovers.length, 0);
   });
+
+  it('rejects unknown subcommand with exit 2', () => {
+    let exitCode = 0;
+    try {
+      execFileSync('node', [CLI, 'bogus-cmd'], { cwd: tmp, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      exitCode = err.status;
+    }
+    assert.equal(exitCode, 2);
+  });
+
+  it('rejects malformed JSON on stage with exit 2', () => {
+    let exitCode = 0;
+    try {
+      execFileSync('node', [CLI, 'stage'], { cwd: tmp, encoding: 'utf-8', input: 'not json{', stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (err) {
+      exitCode = err.status;
+    }
+    assert.equal(exitCode, 2);
+  });
+
+  it('schema-cache get/set round-trip', () => {
+    const payload = JSON.stringify({ taskDb: { id: 'd1', titleProp: 'Name', statusProp: 'Status', assigneeProp: 'A', dueDateProp: 'D' } });
+    run(['schema-cache', 'set'], { cwd: tmp, input: payload });
+    const got = JSON.parse(run(['schema-cache', 'get'], { cwd: tmp }));
+    assert.equal(got.taskDb.titleProp, 'Name');
+    assert.ok(got.taskDb.fetchedAt); // stamped by saveSchemaCache
+  });
 });

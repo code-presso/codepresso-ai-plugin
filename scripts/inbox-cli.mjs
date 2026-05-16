@@ -29,11 +29,24 @@ function parseJsonStdin() {
   }
 }
 
+function loadConfigOrExit() {
+  try {
+    return loadConfig(cwd);
+  } catch (err) {
+    process.stderr.write(`inbox-cli: failed to load config: ${err.message}\n`);
+    process.exit(2);
+  }
+}
+
 const cmd = process.argv[2];
 
+// Output format convention:
+//   prep, schema-cache get → pretty-printed (humans inspect)
+//   stage, complete, schema-cache set → compact (scripts consume)
+//   redact → raw text passthrough
 switch (cmd) {
   case 'prep': {
-    const config = loadConfig(cwd);
+    const config = loadConfigOrExit();
     process.stdout.write(JSON.stringify({
       seen: loadSeen(cwd),
       leftovers: readCandidates(cwd),
@@ -44,13 +57,16 @@ switch (cmd) {
   }
   case 'redact': {
     const text = readStdin();
-    const config = loadConfig(cwd);
+    const config = loadConfigOrExit();
     const extra = config.redaction?.extraPatterns || [];
     process.stdout.write(redactSecrets(text, extra));
     break;
   }
   case 'stage': {
     const { candidates = [], sourceIds = {} } = parseJsonStdin();
+    if (candidates.length === 0) {
+      process.stderr.write('inbox-cli stage: no candidates provided\n');
+    }
     appendCandidates(cwd, candidates);
     if (sourceIds.gmail?.length) markSeen(cwd, 'gmail', sourceIds.gmail);
     if (sourceIds.chat?.length) markSeen(cwd, 'chat', sourceIds.chat);
