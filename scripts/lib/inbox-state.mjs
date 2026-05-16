@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -65,4 +65,49 @@ export function markSeen(cwd, source, ids) {
   }
   seen.lastScannedAt = at;
   saveSeen(cwd, seen);
+}
+
+function candidatesPath(cwd) {
+  return join(stateDir(cwd), 'codepresso-inbox-candidates.jsonl');
+}
+
+export function appendCandidates(cwd, candidates) {
+  if (!candidates?.length) return;
+  mkdirSync(stateDir(cwd), { recursive: true });
+  const lines = candidates.map((c) => JSON.stringify(c)).join('\n') + '\n';
+  appendFileSync(candidatesPath(cwd), lines, 'utf-8');
+}
+
+export function readCandidates(cwd) {
+  const path = candidatesPath(cwd);
+  if (!existsSync(path)) return [];
+  try {
+    return readFileSync(path, 'utf-8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line));
+  } catch {
+    return [];
+  }
+}
+
+export function removeCandidatesByIds(cwd, ids) {
+  if (!ids?.length) return;
+  const toRemove = new Set(ids);
+  const kept = readCandidates(cwd).filter((c) => !toRemove.has(c.id));
+  const path = candidatesPath(cwd);
+  if (kept.length === 0) {
+    writeFileSync(path, '', 'utf-8');
+    return;
+  }
+  const body = kept.map((c) => JSON.stringify(c)).join('\n') + '\n';
+  mkdirSync(stateDir(cwd), { recursive: true });
+  const tmp = `${path}.tmp.${randomUUID()}`;
+  try {
+    writeFileSync(tmp, body, 'utf-8');
+    renameSync(tmp, path);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch { /* best-effort */ }
+    throw err;
+  }
 }

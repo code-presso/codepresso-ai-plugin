@@ -81,3 +81,56 @@ describe('inbox-state seen-IDs', () => {
     );
   });
 });
+
+import { appendCandidates, readCandidates, removeCandidatesByIds } from '../../scripts/lib/inbox-state.mjs';
+
+describe('inbox-state candidate JSONL', () => {
+  let tmp;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'cp-inbox-')); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it('readCandidates returns [] when file is missing', () => {
+    assert.deepEqual(readCandidates(tmp), []);
+  });
+
+  it('appendCandidates appends one line per candidate', () => {
+    appendCandidates(tmp, [
+      { id: 'g1', source: 'gmail', summary: 'A' },
+      { id: 'g2', source: 'gmail', summary: 'B' },
+    ]);
+    const got = readCandidates(tmp);
+    assert.equal(got.length, 2);
+    assert.equal(got[0].id, 'g1');
+    assert.equal(got[1].summary, 'B');
+  });
+
+  it('appendCandidates is additive across calls (preserves leftovers)', () => {
+    appendCandidates(tmp, [{ id: 'g1', source: 'gmail', summary: 'A' }]);
+    appendCandidates(tmp, [{ id: 'g2', source: 'gmail', summary: 'B' }]);
+    assert.equal(readCandidates(tmp).length, 2);
+  });
+
+  it('removeCandidatesByIds removes matching entries and leaves others', () => {
+    appendCandidates(tmp, [
+      { id: 'g1', source: 'gmail', summary: 'A' },
+      { id: 'g2', source: 'gmail', summary: 'B' },
+      { id: 'c1', source: 'chat', summary: 'C' },
+    ]);
+    removeCandidatesByIds(tmp, ['g1', 'c1']);
+    const got = readCandidates(tmp);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].id, 'g2');
+  });
+
+  it('removeCandidatesByIds with empty array is a no-op', () => {
+    appendCandidates(tmp, [{ id: 'g1', source: 'gmail', summary: 'A' }]);
+    removeCandidatesByIds(tmp, []);
+    assert.equal(readCandidates(tmp).length, 1);
+  });
+
+  it('removeCandidatesByIds with no remaining entries leaves an empty file', () => {
+    appendCandidates(tmp, [{ id: 'g1', source: 'gmail', summary: 'A' }]);
+    removeCandidatesByIds(tmp, ['g1']);
+    assert.deepEqual(readCandidates(tmp), []);
+  });
+});
