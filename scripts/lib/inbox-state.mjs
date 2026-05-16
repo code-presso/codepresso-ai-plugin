@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -23,8 +23,13 @@ function readJsonSafe(path, fallback) {
 function writeJsonAtomic(path, value) {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${randomUUID()}`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf-8');
-  renameSync(tmp, path);
+  try {
+    writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf-8');
+    renameSync(tmp, path);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch { /* best-effort */ }
+    throw err;
+  }
 }
 
 export function loadSeen(cwd) {
@@ -47,7 +52,10 @@ export function saveSeen(cwd, seen) {
 export function markSeen(cwd, source, ids) {
   if (!ids?.length) return;
   const seen = loadSeen(cwd);
-  const existing = new Set((seen[source] || []).map((e) => e.id));
+  if (!Array.isArray(seen[source])) {
+    throw new Error(`markSeen: unknown source "${source}". Expected "gmail" or "chat".`);
+  }
+  const existing = new Set(seen[source].map((e) => e.id));
   const at = new Date().toISOString();
   for (const id of ids) {
     if (!existing.has(id)) {

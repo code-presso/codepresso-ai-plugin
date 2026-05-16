@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSeen, saveSeen, markSeen } from '../../scripts/lib/inbox-state.mjs';
@@ -52,6 +52,32 @@ describe('inbox-state seen-IDs', () => {
 
   it('does not leave a temp file behind after successful save', () => {
     saveSeen(tmp, { gmail: [], chat: [], lastScannedAt: null });
-    assert.equal(existsSync(join(tmp, '.codepresso', 'state', 'codepresso-inbox-seen.json.tmp')), false);
+    const stateDir = join(tmp, '.codepresso', 'state');
+    const files = readdirSync(stateDir);
+    const tmps = files.filter((f) => f.includes('.tmp.'));
+    assert.equal(tmps.length, 0);
+  });
+
+  it('keeps entries at exactly 30 days', () => {
+    // Subtract a tiny offset to compensate for the fact that
+    // by the time saveSeen runs, Date.now() has advanced past the cutoff
+    const boundaryIso = new Date(Date.now() - 30 * 86400 * 1000 + 60_000).toISOString();
+    saveSeen(tmp, { gmail: [{ id: 'boundary', at: boundaryIso }], chat: [], lastScannedAt: null });
+    const seen = loadSeen(tmp);
+    assert.equal(seen.gmail.length, 1);
+  });
+
+  it('keeps entries at 29 days', () => {
+    const recentIso = new Date(Date.now() - 29 * 86400 * 1000).toISOString();
+    saveSeen(tmp, { gmail: [{ id: 'recent', at: recentIso }], chat: [], lastScannedAt: null });
+    const seen = loadSeen(tmp);
+    assert.equal(seen.gmail.length, 1);
+  });
+
+  it('markSeen throws on unknown source', () => {
+    assert.throws(
+      () => markSeen(tmp, 'slack', ['s1']),
+      /unknown source/,
+    );
   });
 });
