@@ -25,19 +25,21 @@ Write `ENGINEER#`-prefixed metadata items into the oncall DynamoDB table so the 
 
 ## Engineer Mapping
 
-The following engineer metadata should be seeded. Each engineer gets a DynamoDB item with `AssignmentDate` prefixed by `ENGINEER#`:
+Each engineer gets a DynamoDB item with `AssignmentDate` prefixed by `ENGINEER#`. The actual mapping (display name → GitHub username → email) is **not hardcoded here**. Instead:
 
-| Engineer Name  | GitHub Username             | Email                      |
-|----------------|-----------------------------|----------------------------|
-| <engineer>         | <github-username>                | <email> |
-| <engineer>         | <github-username>    | <email>        |
-| <engineer>         | <github-username>         | <email>    |
-| <engineer>         | <github-username>        | <email>    |
-| <engineer>         | <github-username>          | <email>        |
-| <engineer>         | <github-username>       | <email>        |
-| <engineer>         | <github-username>      | <email>        |
+1. Ask the user (via `AskUserQuestion`) for the rotation roster, OR
+2. Read it from a local untracked config file (e.g., `.codepresso/oncall-roster.json`), OR
+3. Look it up from the team's existing source of truth (HR system, GitHub team API, etc.)
 
-> **Note**: If there are additional engineers in the rotation, ask the user for their GitHub usernames and emails before seeding.
+The roster shape this skill expects:
+
+```json
+[
+  { "name": "<engineer display name>", "github": "<github-username>", "email": "<email>" }
+]
+```
+
+> **Note**: Do not commit the roster to this repository. Engineer names + emails are personal data; keep them in untracked files or pull them from authoritative sources at runtime.
 
 <Steps>
 1. First, check if metadata already exists:
@@ -58,19 +60,19 @@ The following engineer metadata should be seeded. Each engineer gets a DynamoDB 
 
 3. Ask the user to confirm or update the mapping before seeding. If any entries are missing (marked as TBD), **stop and ask** for the missing values.
 
-4. For each engineer, write a DynamoDB item:
+4. For each engineer in the roster, write a DynamoDB item (template):
    ```
    aws dynamodb put-item --table-name oncall-assignments-history --region ap-northeast-2 \
      --item '{
-       "AssignmentDate": {"S": "ENGINEER#<engineer>"},
-       "Engineer": {"S": "<engineer>"},
+       "AssignmentDate": {"S": "ENGINEER#<NAME>"},
+       "Engineer": {"S": "<NAME>"},
        "Role": {"S": "Meta"},
        "GitHubUsername": {"S": "<github-username>"},
        "Email": {"S": "<email>"}
      }'
    ```
 
-   Repeat for each engineer with their respective values.
+   Substitute `<NAME>`, `<github-username>`, and `<email>` with each engineer's values from the roster. Repeat for every engineer in the rotation.
 
 5. Verify the seeding:
    ```
@@ -84,15 +86,10 @@ The following engineer metadata should be seeded. Each engineer gets a DynamoDB 
    ```
    ✅ Engineer metadata seeded successfully!
 
-| Name   | GitHub Username             | Email                      |
-|--------|-----------------------------|----------------------------|
-| <engineer> | <github-username>                | <email> |
-| <engineer> | <github-username>    | <email>        |
-| <engineer> | <github-username>         | <email>    |
-| <engineer> | <github-username>        | <email>    |
-| <engineer> | <github-username>          | <email>        |
-| <engineer> | <github-username>       | <email>        |
-| <engineer> | <github-username>      | <email>        |
+   <render the seeded rows here, e.g.>
+   | Name   | GitHub Username | Email |
+   |--------|-----------------|-------|
+   | …      | …               | …     |
 
    The deploy gate will now use these mappings to verify on-call engineers.
    ```

@@ -2,7 +2,7 @@
 
 **Status**: Approved, ready for implementation plan
 **Date**: 2026-05-16
-**Owner**: <email>
+**Owner**: <plugin maintainer>
 
 ## Problem
 
@@ -206,7 +206,7 @@ N. Inbox scan setup (optional, skip with "n")
 
 **`codepresso-inbox-candidates.jsonl`** — one line per candidate:
 ```json
-{"id":"18e1f...","source":"gmail","from":"Mira Lee <mira@codepresso.kr>","subject":"Re: Q3 review","summary":"Send Q3 budget numbers to finance","sourceUrl":"https://mail.google.com/mail/u/0/#inbox/18e1f...","snippet":"Hey, can you send the Q3 budget...","scannedAt":"2026-05-16T09:12:00+09:00"}
+{"id":"18e1f...","source":"gmail","from":"Mira Lee <mira@example.com>","subject":"Re: Q3 review","summary":"Send Q3 budget numbers to finance","sourceUrl":"https://mail.google.com/mail/u/0/#inbox/18e1f...","snippet":"Hey, can you send the Q3 budget...","scannedAt":"2026-05-16T09:12:00+09:00"}
 ```
 
 **`codepresso-inbox-cache.json`**

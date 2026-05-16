@@ -53,7 +53,7 @@ const DEFAULT_CONFIG = {
   googleChat: {
     enabled: false,
     dailyGreeting: true,
-    spaceId: null,                // Google Chat space ID (e.g., '<SPACE_ID>')
+    spaceId: null,                // Google Chat space ID (e.g., 'AAAAxxxxxxx')
   },
   inbox: {
     enabled: false,

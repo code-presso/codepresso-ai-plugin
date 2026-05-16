@@ -206,7 +206,7 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
   "googleChat": {
     "enabled": false,                              // Enable Google Chat integration
     "dailyGreeting": true,                         // Send daily task summary on first session
-    "spaceId": null                                // Google Chat space ID (e.g., "<SPACE_ID>")
+    "spaceId": null                                // Google Chat space ID (e.g., "AAAAxxxxxxx")
   },
   "inbox": {
     "enabled": false,
