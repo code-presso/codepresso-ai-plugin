@@ -14,7 +14,10 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createLogger } from './lib/logger.mjs';
+import { loadConfig } from './lib/config.mjs';
 import { sendChatMessage } from './lib/gws.mjs';
+import { Client as NotionClient } from '@notionhq/client';
+import { formatReminderSections } from './lib/inbox-state.mjs';
 
 const log = createLogger('daily-chat-greeting');
 const GREETING_STATE_FILE = join(homedir(), '.codepresso', 'daily-greeting.json');
@@ -130,6 +133,62 @@ function notionUrl(pageId) {
 }
 
 /**
+ * Query Notion for tasks where assignee is the configured user, status != 완료,
+ * and dueDate <= end of today. Splits into overdue + dueToday buckets.
+ * Returns { overdue: [], dueToday: [] } on any failure.
+ */
+async function queryReminderTasks(config) {
+  const apiKey = config.notion?.apiKey;
+  const dbId = config.inbox?.notion?.taskDatabaseId || config.notion?.databases?.task;
+  const userId = config.notion?.userId;
+  const dueProp = config.inbox?.notion?.dueDateProperty || '마감일';
+  const assigneeProp = config.notion?.assigneeProperty || 'Assignee';
+  const empty = { overdue: [], dueToday: [] };
+  if (!apiKey || !dbId || !userId) return empty;
+
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayStartMs = todayStart.getTime();
+
+  try {
+    const client = new NotionClient({ auth: apiKey });
+    const resp = await client.databases.query({
+      database_id: dbId,
+      filter: {
+        and: [
+          { property: assigneeProp, people: { contains: userId } },
+          { property: '상태', status: { does_not_equal: '완료' } },
+          { property: dueProp, date: { on_or_before: todayEnd.toISOString() } },
+        ],
+      },
+      page_size: 50,
+    });
+    const overdue = [];
+    const dueToday = [];
+    for (const page of resp.results) {
+      const props = page.properties || {};
+      const titleProp = Object.values(props).find((p) => p.type === 'title');
+      const title = titleProp?.title?.map((t) => t.plain_text).join('') || '(untitled)';
+      const dueRaw = props[dueProp]?.date?.start;
+      if (!dueRaw) continue;
+      const uniqueIdProp = Object.values(props).find((p) => p.type === 'unique_id');
+      const uniqueId = uniqueIdProp?.unique_id
+        ? `${uniqueIdProp.unique_id.prefix}-${uniqueIdProp.unique_id.number}`
+        : null;
+      const row = { title, uniqueId, dueDate: dueRaw };
+      if (Date.parse(dueRaw) < todayStartMs) overdue.push(row);
+      else dueToday.push(row);
+    }
+    return { overdue, dueToday };
+  } catch (err) {
+    log.error(`Reminder query failed: ${err.message}`);
+    return empty;
+  }
+}
+
+/**
  * Format a single task line with Notion link.
  * Google Chat auto-linkifies plain URLs in text messages.
  */
@@ -189,11 +248,7 @@ function formatMessage(tasks, prs, displayName) {
   const summary = `총 작업 ${inProgress.length}개 · 내 PR ${authored.length}개 · 리뷰 대기 ${reviewRequested.length}개`;
   lines.push(summary);
 
-  const phrase = generateDailyPhrase(inProgress.length);
-  lines.push('');
-  lines.push(`💬 _${phrase}_`);
-
-  return lines.join('\n');
+  return { text: lines.join('\n'), taskCount: inProgress.length };
 }
 
 /**
@@ -232,6 +287,7 @@ async function main() {
   }
 
   const { tasks, spaceId, displayName, gitRoot } = payload;
+  const config = loadConfig(gitRoot || process.cwd());
 
   if (!spaceId) {
     log.error('No spaceId configured — skipping greeting');
@@ -252,7 +308,28 @@ async function main() {
     return;
   }
 
-  const message = formatMessage(activeTasks, prs, displayName);
+  const { text: baseMessage, taskCount } = formatMessage(activeTasks, prs, displayName);
+  let message = baseMessage;
+
+  // Append overdue / due-today reminder sections (before motivational phrase)
+  const reminderConfig = config?.inbox?.reminder || {};
+  if (config?.inbox?.enabled && (reminderConfig.showOverdue || reminderConfig.showDueToday)) {
+    const { overdue, dueToday } = await queryReminderTasks(config);
+    const filteredOverdue = reminderConfig.showOverdue ? overdue : [];
+    const filteredDueToday = reminderConfig.showDueToday ? dueToday : [];
+    const reminderText = formatReminderSections(
+      filteredOverdue,
+      filteredDueToday,
+      { maxPerSection: reminderConfig.maxPerSection ?? 5 },
+    );
+    if (reminderText) {
+      message = message ? `${message}\n\n${reminderText}` : reminderText;
+    }
+  }
+
+  // Motivational phrase is always the closing line
+  const phrase = generateDailyPhrase(taskCount);
+  message = `${message}\n\n💬 _${phrase}_`;
 
   try {
     sendChatMessage(spaceId, message);

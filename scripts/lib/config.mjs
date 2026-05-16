@@ -55,6 +55,31 @@ const DEFAULT_CONFIG = {
     dailyGreeting: true,
     spaceId: null,                // Google Chat space ID (e.g., '<SPACE_ID>')
   },
+  inbox: {
+    enabled: false,
+    sources: {
+      gmail: {
+        enabled: true,
+        lookbackHours: 24,
+        query: 'in:inbox is:unread -category:promotions -category:social',
+        maxResults: 30,
+      },
+      chat: {
+        enabled: true,
+        lookbackHours: 24,
+        spaceIds: [],
+        maxPerSpace: 20,
+      },
+    },
+    ignoreSenders: ['noreply@', 'notifications@github\\.com', 'no-reply@'],
+    classifier: { maxCandidatesPerScan: 10 },
+    notion: {
+      taskDatabaseId: null,
+      dueDateProperty: '마감일',
+      defaultDueOption: 'Tomorrow',
+    },
+    reminder: { showOverdue: true, showDueToday: true, maxPerSection: 5 },
+  },
   excludePatterns: [
     '^/',                              // All slash commands (/help, /status, /commit, etc.)
     '(executed|registered)',           // System execution messages
@@ -190,7 +215,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'inbox', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
@@ -256,6 +281,19 @@ export function validateConfig(config) {
     }
     if (config.googleChat.spaceId !== null && config.googleChat.spaceId !== undefined && typeof config.googleChat.spaceId !== 'string') {
       warnings.push(`googleChat.spaceId should be a string, got ${typeof config.googleChat.spaceId}`);
+    }
+  }
+
+  if (config.inbox) {
+    if (typeof config.inbox.enabled !== 'undefined' && typeof config.inbox.enabled !== 'boolean') {
+      warnings.push(`inbox.enabled should be boolean, got ${typeof config.inbox.enabled}`);
+    }
+    if (config.inbox.classifier && typeof config.inbox.classifier.maxCandidatesPerScan === 'number'
+        && config.inbox.classifier.maxCandidatesPerScan <= 0) {
+      warnings.push(`inbox.classifier.maxCandidatesPerScan must be > 0, got ${config.inbox.classifier.maxCandidatesPerScan}`);
+    }
+    if (config.inbox.ignoreSenders && !Array.isArray(config.inbox.ignoreSenders)) {
+      warnings.push(`inbox.ignoreSenders should be an array, got ${typeof config.inbox.ignoreSenders}`);
     }
   }
 

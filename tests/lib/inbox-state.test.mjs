@@ -1,0 +1,235 @@
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadSeen, saveSeen, markSeen } from '../../scripts/lib/inbox-state.mjs';
+
+describe('inbox-state seen-IDs', () => {
+  let tmp;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'cp-inbox-')); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it('returns empty defaults when seen file is missing', () => {
+    const seen = loadSeen(tmp);
+    assert.deepEqual(seen.gmail, []);
+    assert.deepEqual(seen.chat, []);
+    assert.equal(seen.lastScannedAt, null);
+  });
+
+  it('roundtrips through saveSeen/loadSeen', () => {
+    saveSeen(tmp, {
+      gmail: [{ id: 'm1', at: new Date().toISOString() }],
+      chat: [{ id: 'c1', at: new Date().toISOString() }],
+      lastScannedAt: '2026-05-16T09:00:00+09:00',
+    });
+    const seen = loadSeen(tmp);
+    assert.equal(seen.gmail.length, 1);
+    assert.equal(seen.gmail[0].id, 'm1');
+    assert.equal(seen.lastScannedAt, '2026-05-16T09:00:00+09:00');
+  });
+
+  it('markSeen appends new IDs and is idempotent', () => {
+    markSeen(tmp, 'gmail', ['m1', 'm2']);
+    markSeen(tmp, 'gmail', ['m2', 'm3']);
+    const seen = loadSeen(tmp);
+    const ids = seen.gmail.map((e) => e.id).sort();
+    assert.deepEqual(ids, ['m1', 'm2', 'm3']);
+  });
+
+  it('prunes entries older than 30 days on save', () => {
+    const oldIso = new Date(Date.now() - 31 * 86400 * 1000).toISOString();
+    const newIso = new Date().toISOString();
+    saveSeen(tmp, {
+      gmail: [{ id: 'old', at: oldIso }, { id: 'new', at: newIso }],
+      chat: [],
+      lastScannedAt: newIso,
+    });
+    const seen = loadSeen(tmp);
+    const ids = seen.gmail.map((e) => e.id);
+    assert.deepEqual(ids, ['new']);
+  });
+
+  it('does not leave a temp file behind after successful save', () => {
+    saveSeen(tmp, { gmail: [], chat: [], lastScannedAt: null });
+    const stateDir = join(tmp, '.codepresso', 'state');
+    const files = readdirSync(stateDir);
+    const tmps = files.filter((f) => f.includes('.tmp.'));
+    assert.equal(tmps.length, 0);
+  });
+
+  it('keeps entries at exactly 30 days', () => {
+    // Subtract a tiny offset to compensate for the fact that
+    // by the time saveSeen runs, Date.now() has advanced past the cutoff
+    const boundaryIso = new Date(Date.now() - 30 * 86400 * 1000 + 60_000).toISOString();
+    saveSeen(tmp, { gmail: [{ id: 'boundary', at: boundaryIso }], chat: [], lastScannedAt: null });
+    const seen = loadSeen(tmp);
+    assert.equal(seen.gmail.length, 1);
+  });
+
+  it('keeps entries at 29 days', () => {
+    const recentIso = new Date(Date.now() - 29 * 86400 * 1000).toISOString();
+    saveSeen(tmp, { gmail: [{ id: 'recent', at: recentIso }], chat: [], lastScannedAt: null });
+    const seen = loadSeen(tmp);
+    assert.equal(seen.gmail.length, 1);
+  });
+
+  it('markSeen throws on unknown source', () => {
+    assert.throws(
+      () => markSeen(tmp, 'slack', ['s1']),
+      /unknown source/,
+    );
+  });
+});
+
+import { appendCandidates, readCandidates, removeCandidatesByIds } from '../../scripts/lib/inbox-state.mjs';
+
+describe('inbox-state candidate JSONL', () => {
+  let tmp;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'cp-inbox-')); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it('readCandidates returns [] when file is missing', () => {
+    assert.deepEqual(readCandidates(tmp), []);
+  });
+
+  it('appendCandidates appends one line per candidate', () => {
+    appendCandidates(tmp, [
+      { id: 'g1', source: 'gmail', summary: 'A' },
+      { id: 'g2', source: 'gmail', summary: 'B' },
+    ]);
+    const got = readCandidates(tmp);
+    assert.equal(got.length, 2);
+    assert.equal(got[0].id, 'g1');
+    assert.equal(got[1].summary, 'B');
+  });
+
+  it('appendCandidates is additive across calls (preserves leftovers)', () => {
+    appendCandidates(tmp, [{ id: 'g1', source: 'gmail', summary: 'A' }]);
+    appendCandidates(tmp, [{ id: 'g2', source: 'gmail', summary: 'B' }]);
+    assert.equal(readCandidates(tmp).length, 2);
+  });
+
+  it('removeCandidatesByIds removes matching entries and leaves others', () => {
+    appendCandidates(tmp, [
+      { id: 'g1', source: 'gmail', summary: 'A' },
+      { id: 'g2', source: 'gmail', summary: 'B' },
+      { id: 'c1', source: 'chat', summary: 'C' },
+    ]);
+    removeCandidatesByIds(tmp, ['g1', 'c1']);
+    const got = readCandidates(tmp);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].id, 'g2');
+  });
+
+  it('removeCandidatesByIds with empty array is a no-op', () => {
+    appendCandidates(tmp, [{ id: 'g1', source: 'gmail', summary: 'A' }]);
+    removeCandidatesByIds(tmp, []);
+    assert.equal(readCandidates(tmp).length, 1);
+  });
+
+  it('removeCandidatesByIds with no remaining entries leaves an empty file', () => {
+    appendCandidates(tmp, [{ id: 'g1', source: 'gmail', summary: 'A' }]);
+    removeCandidatesByIds(tmp, ['g1']);
+    assert.deepEqual(readCandidates(tmp), []);
+  });
+
+  it('removeCandidatesByIds works when candidates file never existed', () => {
+    // No prior appendCandidates call — state dir does not yet exist.
+    assert.doesNotThrow(() => removeCandidatesByIds(tmp, ['nonexistent-id']));
+  });
+});
+
+import {
+  loadSchemaCache, saveSchemaCache, isSchemaCacheStale,
+  shouldRunInboxScan,
+  formatReminderSections,
+} from '../../scripts/lib/inbox-state.mjs';
+
+describe('inbox-state schema cache', () => {
+  let tmp;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'cp-inbox-')); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it('returns null when no cache exists', () => {
+    assert.equal(loadSchemaCache(tmp), null);
+  });
+
+  it('roundtrips through save/load', () => {
+    saveSchemaCache(tmp, { taskDb: { id: 'db1', titleProp: '이름', statusProp: '상태' } });
+    const got = loadSchemaCache(tmp);
+    assert.equal(got.taskDb.titleProp, '이름');
+    assert.ok(got.taskDb.fetchedAt);
+  });
+
+  it('isSchemaCacheStale flags caches older than 7 days', () => {
+    const stale = { taskDb: { fetchedAt: new Date(Date.now() - 8 * 86400 * 1000).toISOString() } };
+    const fresh = { taskDb: { fetchedAt: new Date().toISOString() } };
+    assert.equal(isSchemaCacheStale(stale), true);
+    assert.equal(isSchemaCacheStale(fresh), false);
+    assert.equal(isSchemaCacheStale(null), true);
+  });
+
+  it('isSchemaCacheStale boundary: 7 days minus 1 second is fresh, 7 days plus 1 second is stale', () => {
+    const fetchedAt = '2026-05-01T00:00:00.000Z';
+    const justBeforeBoundary = Date.parse(fetchedAt) + 7 * 86_400_000 - 1000;
+    const justAfterBoundary  = Date.parse(fetchedAt) + 7 * 86_400_000 + 1000;
+    assert.equal(isSchemaCacheStale({ taskDb: { fetchedAt } }, justBeforeBoundary), false);
+    assert.equal(isSchemaCacheStale({ taskDb: { fetchedAt } }, justAfterBoundary), true);
+  });
+});
+
+describe('inbox-state shouldRunInboxScan', () => {
+  const baseConfig = { inbox: { enabled: true } };
+
+  it('returns false when inbox.enabled is false', () => {
+    assert.equal(shouldRunInboxScan({ inbox: { enabled: false } }, '2026-05-13', null, 3), false);
+  });
+
+  it('returns false on Saturday (dayOfWeek=6) and Sunday (0)', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-16', null, 6), false);
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-17', null, 0), false);
+  });
+
+  it('returns true on a weekday when lastRunDate is missing', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-13', null, 3), true);
+  });
+
+  it('returns false when lastRunDate equals today', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-13', '2026-05-13', 3), false);
+  });
+
+  it('returns true when lastRunDate is an older weekday', () => {
+    assert.equal(shouldRunInboxScan(baseConfig, '2026-05-18', '2026-05-15', 1), true);
+  });
+});
+
+describe('inbox-state formatReminderSections', () => {
+  it('returns empty string when both buckets empty', () => {
+    assert.equal(formatReminderSections([], [], { maxPerSection: 5 }), '');
+  });
+
+  it('renders overdue with days-late and due-today bullet sections', () => {
+    const todayMs = Date.parse('2026-05-13T00:00:00+09:00');
+    const overdue = [
+      { title: 'Send Q3 budget', uniqueId: 'TSK-12345', dueDate: '2026-05-10T18:00:00+09:00' },
+    ];
+    const dueToday = [
+      { title: 'Review onboarding', uniqueId: 'TSK-12346', dueDate: '2026-05-13T18:00:00+09:00' },
+    ];
+    const out = formatReminderSections(overdue, dueToday, { maxPerSection: 5, now: todayMs });
+    assert.ok(out.includes('Overdue (1)'));
+    assert.ok(out.includes('TSK-12345'));
+    assert.ok(out.includes('2 days late'), `expected "2 days late", got: ${out}`);
+    assert.ok(out.includes('Due today (1)'));
+    assert.ok(out.includes('TSK-12346'));
+  });
+
+  it('caps bullets per section and shows "... and N more" tail', () => {
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      title: `T${i}`, uniqueId: `TSK-${i}`, dueDate: '2026-05-13T18:00:00+09:00',
+    }));
+    const out = formatReminderSections([], rows, { maxPerSection: 5, now: Date.parse('2026-05-13T00:00:00+09:00') });
+    assert.ok(out.includes('... and 2 more'));
+  });
+});

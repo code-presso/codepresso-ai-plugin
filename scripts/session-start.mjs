@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { shouldRunInboxScan } from './lib/inbox-state.mjs';
 
 const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
@@ -55,6 +56,36 @@ function isFirstSessionOfDay() {
 function isWeekday() {
   const dow = new Date().getDay();
   return dow >= 1 && dow <= 5;
+}
+
+const INBOX_LAST_RUN_FILE = join(homedir(), '.codepresso', 'inbox-last-run.json');
+
+function readInboxLastRunDate() {
+  try {
+    const raw = readFileSync(INBOX_LAST_RUN_FILE, 'utf-8');
+    return JSON.parse(raw).lastDate || null;
+  } catch {
+    return null;
+  }
+}
+
+function markInboxScanScheduled(todayDate) {
+  try {
+    mkdirSync(dirname(INBOX_LAST_RUN_FILE), { recursive: true });
+    writeFileSync(INBOX_LAST_RUN_FILE, JSON.stringify({ lastDate: todayDate }, null, 2), 'utf-8');
+  } catch (err) {
+    log.error(`Failed to update inbox-last-run: ${err.message}`);
+  }
+}
+
+// Uses local-time getters intentionally — the inbox daily flag must agree with
+// `new Date().getDay()` used to detect weekday vs weekend. (Distinct from the
+// greeting's `toISOString().slice(0,10)` which uses UTC.)
+function todayLocalDate(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
@@ -212,6 +243,19 @@ async function main() {
         return s === '진행 중' || s === 'in progress' || s === 'in_progress';
       });
       spawnDailyGreeting(inProgressTasks, config, gitRoot);
+    }
+
+    // Inbox scan instruction (first weekday session of the day, when enabled)
+    const now = new Date();
+    const today = todayLocalDate(now);
+    const dayOfWeek = now.getDay();
+    const inboxLastRun = readInboxLastRunDate();
+    if (shouldRunInboxScan(config, today, inboxLastRun, dayOfWeek)) {
+      contextParts.push(
+        '[Codepresso] Morning inbox routine: invoke the codepresso:scan-inbox skill to triage Gmail + Chat for action-item messages.'
+      );
+      markInboxScanScheduled(today);
+      log.info(`Inbox scan instruction injected (today=${today})`);
     }
 
     const sessionState = {
