@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, ren
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+const MS_PER_DAY = 86_400_000;
 const PRUNE_DAYS = 30;
 
 function stateDir(cwd) {
@@ -37,7 +38,7 @@ export function loadSeen(cwd) {
 }
 
 export function saveSeen(cwd, seen) {
-  const cutoff = Date.now() - PRUNE_DAYS * 86400 * 1000;
+  const cutoff = Date.now() - PRUNE_DAYS * MS_PER_DAY;
   const prune = (entries) => (entries || []).filter((e) => {
     const at = e?.at ? Date.parse(e.at) : 0;
     return at >= cutoff;
@@ -109,10 +110,9 @@ export function saveSchemaCache(cwd, cache) {
   writeJsonAtomic(schemaCachePath(cwd), stamped);
 }
 
-export function isSchemaCacheStale(cache) {
+export function isSchemaCacheStale(cache, nowMs = Date.now()) {
   if (!cache?.taskDb?.fetchedAt) return true;
-  const age = Date.now() - Date.parse(cache.taskDb.fetchedAt);
-  return age > SCHEMA_TTL_DAYS * 86400 * 1000;
+  return nowMs - Date.parse(cache.taskDb.fetchedAt) > SCHEMA_TTL_DAYS * MS_PER_DAY;
 }
 
 export function shouldRunInboxScan(config, todayDate, lastRunDate, dayOfWeek) {
@@ -130,7 +130,7 @@ export function formatReminderSections(overdue, dueToday, opts) {
   const renderBullet = (row, withDaysLate = false) => {
     const id = row.uniqueId ? `[${row.uniqueId}] ` : '';
     if (withDaysLate) {
-      const daysLate = Math.floor((nowMs - Date.parse(row.dueDate)) / (86400 * 1000));
+      const daysLate = Math.floor((nowMs - Date.parse(row.dueDate)) / MS_PER_DAY);
       const suffix = daysLate <= 0 ? '' : ` — ${daysLate} day${daysLate === 1 ? '' : 's'} late`;
       return `  • ${id}${row.title}${suffix}`;
     }

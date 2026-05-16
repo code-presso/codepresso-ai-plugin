@@ -169,6 +169,14 @@ describe('inbox-state schema cache', () => {
     assert.equal(isSchemaCacheStale(fresh), false);
     assert.equal(isSchemaCacheStale(null), true);
   });
+
+  it('isSchemaCacheStale boundary: 7 days minus 1 second is fresh, 7 days plus 1 second is stale', () => {
+    const fetchedAt = '2026-05-01T00:00:00.000Z';
+    const justBeforeBoundary = Date.parse(fetchedAt) + 7 * 86_400_000 - 1000;
+    const justAfterBoundary  = Date.parse(fetchedAt) + 7 * 86_400_000 + 1000;
+    assert.equal(isSchemaCacheStale({ taskDb: { fetchedAt } }, justBeforeBoundary), false);
+    assert.equal(isSchemaCacheStale({ taskDb: { fetchedAt } }, justAfterBoundary), true);
+  });
 });
 
 describe('inbox-state shouldRunInboxScan', () => {
@@ -212,7 +220,7 @@ describe('inbox-state formatReminderSections', () => {
     const out = formatReminderSections(overdue, dueToday, { maxPerSection: 5, now: todayMs });
     assert.ok(out.includes('Overdue (1)'));
     assert.ok(out.includes('TSK-12345'));
-    assert.ok(out.includes('days late') || out.includes('day late'));
+    assert.ok(out.includes('2 days late'), `expected "2 days late", got: ${out}`);
     assert.ok(out.includes('Due today (1)'));
     assert.ok(out.includes('TSK-12346'));
   });
