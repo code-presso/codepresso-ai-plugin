@@ -119,6 +119,47 @@ set logging preferences, and write config files.
    - If sprint workflow enabled, test sprint fetch: query sprint DB for current sprint
    - Confirm everything works
    - Print summary of configuration
+
+10. **Inbox scan setup** (optional)
+   - Ask using AskUserQuestion: "Enable inbox task tracker (scans Gmail + Chat for action items)? [y/N]". If no, skip this step.
+
+   **10.1 Gmail connector**
+   - Verify `mcp__claude_ai_Gmail` is authenticated:
+     1. Call `mcp__claude_ai_Gmail__authenticate`. If already authenticated, continue. Otherwise complete OAuth via `mcp__claude_ai_Gmail__complete_authentication`.
+     2. Confirm by listing 1 message from inbox.
+   - If unable to authenticate, emit `⚠️ Gmail not authed — inbox will use Chat only until you re-run setup.` and continue to 10.4.
+
+   **10.2 Notion task database schema**
+   - Ask the user for the task database ID (default to existing `notion.databases.task`). Save to `inbox.notion.taskDatabaseId` if different.
+   - Fetch the database schema via `mcp__claude_ai_Notion__notion-fetch`:
+     - If a property with type `date` and name matching `inbox.notion.dueDateProperty` (default `마감일`) exists, continue to 10.3.
+     - If absent, prompt using AskUserQuestion: "Add date property '마감일' to your task DB? [Y/n]".
+       - If yes: call `mcp__claude_ai_Notion__notion-update-data-source` with:
+         ```json
+         { "data_source_id": "<dbid>", "properties": { "마감일": { "date": {} } } }
+         ```
+       - If no: prompt for the existing property name and save to `inbox.notion.dueDateProperty`.
+
+   **10.3 Reminder configuration (one-time manual step)**
+   - Emit this instruction verbatim:
+     ```
+     📅 One-time Notion setup needed for native reminders:
+        1. Open your task database in Notion.
+        2. Click the "마감일" property header.
+        3. Click "Edit property".
+        4. Toggle on "Remind me".
+        5. Set "On day at 9am" (or your preferred reminder offset).
+
+        You can skip this — the plugin's morning Chat ping will still surface
+        overdue + due-today tasks regardless.
+     ```
+
+   **10.4 Chat space IDs**
+   - Ask using AskUserQuestion: "Which Chat space IDs should the scan watch? (comma-separated, or Enter for DMs only)". Save to `inbox.sources.chat.spaceIds`.
+
+   **10.5 Flip the master switch**
+   - Update `~/.codepresso/config.json` to set `inbox.enabled: true`.
+   - Emit `✅ Inbox scan enabled. Run /codepresso:scan-inbox to try it now, or wait for tomorrow morning.`
 </Steps>
 
 <Tool_Usage>
@@ -149,4 +190,5 @@ Action: Run wizard focused on per-project config
 - [ ] MCP tool permissions configured in `.claude/settings.local.json`
 - [ ] Epic PRD configuration set (if requested)
 - [ ] Google Chat daily greeting configured (if requested): gws CLI authenticated, spaceId set
+- [ ] Inbox scan configured (if requested): Gmail authenticated, Notion due-date property verified, Chat space IDs set, `inbox.enabled: true`
 </Final_Checklist>
