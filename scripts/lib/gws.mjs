@@ -2,6 +2,9 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createLogger } from './logger.mjs';
+
+const logger = createLogger('gws');
 
 /**
  * Send a Google Chat message via the `gws` CLI.
@@ -50,8 +53,24 @@ function defaultRunner(cmd) {
  */
 export function fetchChatUnread({ spaceIds, sinceIso, maxPerSpace, runner = defaultRunner }) {
   if (!Array.isArray(spaceIds) || spaceIds.length === 0) return [];
+
+  // Fix 2 (sinceIso validation) — validate once before the loop
+  if (typeof sinceIso !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(sinceIso)) {
+    logger.warn(`fetchChatUnread: invalid sinceIso "${sinceIso}"`);
+    return [];
+  }
+
+  // Fix 3 — capture scannedAt once before the loop
+  const scannedAt = new Date().toISOString();
+
   const results = [];
   for (const spaceId of spaceIds) {
+    // Fix 1 — shell injection defense: validate spaceId before interpolating
+    if (!/^[A-Za-z0-9_-]+$/.test(spaceId)) {
+      logger.warn(`fetchChatUnread: skipping invalid spaceId "${spaceId}"`);
+      continue;
+    }
+
     const filter = `createTime > "${sinceIso}"`;
     const cmd =
       `gws chat spaces messages list --parent "spaces/${spaceId}" ` +
@@ -59,13 +78,17 @@ export function fetchChatUnread({ spaceIds, sinceIso, maxPerSpace, runner = defa
     let raw;
     try {
       raw = runner(cmd);
-    } catch {
+    } catch (err) {
+      // Fix 2 — log runner failures instead of swallowing silently
+      logger.warn(`fetchChatUnread: runner failed for spaces/${spaceId} — ${err.message}`);
       continue;
     }
     let parsed;
     try {
       parsed = JSON.parse(raw || '{}');
-    } catch {
+    } catch (err) {
+      // Fix 2 — log parse failures instead of swallowing silently
+      logger.warn(`fetchChatUnread: JSON parse failed for spaces/${spaceId} — ${err.message}`);
       continue;
     }
     const messages = parsed.messages || [];
@@ -74,10 +97,11 @@ export function fetchChatUnread({ spaceIds, sinceIso, maxPerSpace, runner = defa
         id: m.name,
         source: 'chat',
         from: m.sender?.displayName || m.sender?.name || 'unknown',
-        subject: '',
+        subject: null, // Fix 4 — Chat messages have no subject concept
         snippet: (m.text || '').slice(0, 500),
-        sourceUrl: `https://chat.google.com/room/${spaceId}/${m.name?.split('/').pop() || ''}`,
-        scannedAt: new Date().toISOString(),
+        // Fix 5 — Note: Google Chat permalinks require threadId; this approximation links to space root.
+        sourceUrl: `https://chat.google.com/room/${spaceId}`,
+        scannedAt, // Fix 3 — reuse single timestamp
       });
     }
   }
