@@ -103,6 +103,10 @@ function spawnDailyGreeting(tasks, config, gitRoot) {
       displayName: config.notion?.displayName || null,
       gitRoot: gitRoot || null,
       githubUsername: config.github?.username || null,
+      config: {
+        notion: config.notion || null,
+        inbox: config.inbox || null,
+      },
     };
 
     const payloadPath = join(STATE_DIR, `codepresso-greeting-${Date.now()}.json`);
