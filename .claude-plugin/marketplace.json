@@ -10,7 +10,7 @@
     {
       "name": "codepresso",
       "description": "Team workflow plugin - Notion task sync, sprint workflow, git operation tracking on PRs, daily Google Chat bookends, and optional deployment integration for Claude Code.",
-      "version": "0.1.15",
+      "version": "0.2.8",
       "author": {
         "name": "Code Presso"
       },
