@@ -1,7 +1,7 @@
 {
   "name": "codepresso",
-  "version": "0.2.8",
-  "description": "Team workflow - Notion sync, sprint workflow, PR activity tracking",
+  "version": "0.2.9",
+  "description": "Team workflow - Notion sync, sprint workflow, PR activity tracking + Figma scaffold pipeline",
   "author": {
     "name": "Team"
   },
