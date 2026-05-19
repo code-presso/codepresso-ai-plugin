@@ -1,6 +1,6 @@
 # Codepresso
 
-Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스프린트 워크플로우 자동화, PR 연동 git 활동 추적, **Gmail + Google Chat 받은편지함 작업 트래커**, 평일 Google Chat 북엔드, 선택적 배포 연동, 온콜 관리까지.
+Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스프린트 워크플로우 자동화, PR 연동 git 활동 추적, **Gmail + Google Chat 받은편지함 작업 트래커**, 평일 Google Chat 북엔드, **Figma → 프론트엔드 scaffold 자동화**, 선택적 배포 연동, 온콜 관리까지.
 
 ---
 
@@ -12,6 +12,7 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **PR 머지 → Notion 상태 전이**: `gh pr merge`를 감지해 연결된 Notion 작업(그리고 에픽의 마지막 작업이라면 에픽까지)을 완료 상태로 전환합니다.
 - **스프린트 워크플로우**: 세션 시작 시 Sprint → Epic → Task 계층을 가져오고, 에픽의 모든 작업이 끝나면 에픽도 자동 완료 처리합니다.
 - **🆕 받은편지함 작업 트래커**: Gmail과 Google Chat에 묻혀 잊혀지는 작업 요청을 매일 아침 자동으로 스캔합니다. AI가 후보를 골라주면 한 번의 클릭으로 마감일 있는 Notion 작업으로 변환되며, 아침 인사 메시지에는 마감 임박/지난 작업이 함께 표시됩니다.
+- **🆕 Figma → 프론트엔드 scaffold (v0.2.9)**: Figma URL + node-id + PAT만 주면 디자인 시스템 토큰이 매핑된 Vue/React scaffold를 자동 생성합니다. Codepresso 검증 결과 픽셀 일치율 87~97%, 하드코딩 hex 0건, 토큰 준수율 6× 향상, 퍼블리셔 시간 75~85% 절감.
 - **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 18시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송합니다.
 - **배포 연동** (선택): ECS, CodePipeline, GitHub Actions, 커스텀 명령어 중 원하는 방식으로 Claude Code에서 배포를 트리거할 수 있습니다.
 - **온콜 관리** (선택): DynamoDB + Google Calendar 기반 온콜 스케줄 조회/교체/생성, 런북 검색까지 Claude에서 한 번에.
@@ -37,6 +38,12 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **한 화면에서 시작**: 스프린트 진행 상황, 내 PR, 리뷰 대기 PR, 받은편지함 작업을 Google Chat 한 곳에서 → 아침에 여러 탭을 켤 필요가 없습니다.
 - **자동 회고**: 평일 18시에 자동 요약을 받아 → "오늘 뭐 했지?" 회고가 무료로 생깁니다.
 - **터미널에서 끝**: 작업 선택, PR 생성, 머지, 배포, 온콜 조회 모두 Claude Code 내에서 처리.
+
+### 🎨 퍼블리셔 작업이 줄어듭니다 (v0.2.9 🆕)
+- **Figma → AI scaffold**: Figma URL + 본인 PAT만 주면 디자인 시스템 토큰에 매핑된 Vue/React 컴포넌트를 자동 생성합니다.
+- **추정 시간 절감 75-85%**: 0부터 1,400줄 작성 (1-2일) → AI scaffold 받아 데이터 연결/미세 조정 (1-2시간).
+- **하드코딩 hex 0건 보장**: `$color-*` / `$space-*` / `$radius-*` 토큰을 자동으로 적용합니다.
+- **검증된 결과**: Codepresso 평가리포트 페이지 3개로 검증, 픽셀 일치율 HIGH 86.62% / MID 96.87% / LOW 96.71%.
 
 ### 👥 팀과의 가시성이 좋아집니다
 - **비동기 추적**: 모든 활동이 PR 코멘트와 Notion 상태로 흐릅니다. 팀원이 회의 없이 진행 상황을 따라갈 수 있습니다.
@@ -248,6 +255,66 @@ Gmail과 Google Chat에서 누군가 부탁한 작업이 알림 너머로 사라
 
 ---
 
+## 🆕 Figma → 프론트엔드 scaffold (v0.2.9)
+
+Figma 디자인을 받은 퍼블리셔/프론트엔드 개발자가 처음부터 마크업을 짜는 시간을 75-85% 절감해주는 자동화 파이프라인. 단일 designer agent 호출로 Vue/React 컴포넌트 트리 + 디자인 시스템 토큰 적용까지 한 번에.
+
+### 동작 방식
+
+```
+사용자: Figma URL + 본인 PAT 제공
+   ↓
+Claude: REST API로 node tree 추출 (정확한 width/padding/font/color)
+   ↓
+figma-to-spec.mjs: hex → $color-* / padding → $space-* / font → $fs-*/$fw-* 자동 매핑
+   ↓
+designer-high (Opus) + 분할 design_system 컨텍스트 + Figma render PNG
+   ↓
+Vue/React 컴포넌트 ~9개 (1,400줄) — application/pages/playground/ 자동 통합
+   ↓
+(선택) Puppeteer로 Human vs AI 픽셀 비교 → 검증 리포트
+```
+
+### 활성화
+
+별도 설정 필요 없음. Figma URL + PAT만 있으면 즉시 사용 가능합니다.
+
+1. Figma → Settings → Security → Personal Access Tokens → Generate
+2. 스코프: `File content (Read-only)`, `Variables (Read-only)`
+3. Claude Code에서 "이 figma 노드로 Vue scaffold 만들어줘 [URL] PAT: figd_..." 식으로 요청
+
+### Codepresso 검증 결과 (N=3 페이지, local Nuxt dev 동일 환경)
+
+| 난이도 | 페이지 | 픽셀 일치율 |
+|--------|--------|------:|
+| 상 (HIGH) | Assessment Detail (관리자 뷰) | **86.62%** |
+| 중 (MID) | Assessment List (다크 테마) | **96.87%** |
+| 하 (LOW) | PDF Export | **96.71%** |
+
+- 하드코딩 hex 색상: 3개 페이지 모두 **0개**
+- 디자인 토큰 준수율: **73.8%** (legacy 평균 12.21% 대비 6× 향상)
+- Mixin 활용: 페이지당 47회
+
+### 왜 이게 편한가?
+
+- **0부터 작성 시간 절감**: 8-13시간 → 1-2시간 (~75-85% 절감)
+- **토큰 적용 자동화**: `_variables.scss`의 `$color-*` / `$space-*` / `$radius-*` / `$fs-*` 토큰이 100% 매핑되어 적용됩니다.
+- **레이아웃 정확성**: Figma의 정확한 width/height/padding/gap을 그대로 사용 (PNG 추정 X).
+- **컴포넌트 reuse 힌트**: Figma component 인스턴스는 `<!-- TODO: reuse <LazyXXX /> -->` 주석으로 표시 → 기존 카탈로그 활용 유도.
+- **다른 repo도 5분이면 적응**: `figma-to-spec.mjs`의 `COLOR_MAP`만 그 프로젝트 토큰으로 교체하면 됩니다 (`references/token-map-example.md` 가이드 제공).
+
+### 자세한 가이드
+
+플러그인 내부:
+- `skills/scaffolding-from-figma/SKILL.md` — 사용 절차 + 트리거 조건
+- `skills/scaffolding-from-figma/references/anti-hallucination.md` — design_system.md를 14파일로 분할해야 환각이 줄어드는 이유 (실험 데이터 포함)
+- `skills/scaffolding-from-figma/references/token-map-example.md` — 다른 프로젝트에 적응시키는 방법
+
+실험 결과 + 사이드바이사이드 비교 스크린샷:  
+https://github.com/code-presso/global-main-frontend/tree/experiment/design-system-figma-html
+
+---
+
 ## 자세한 동작 (개발자용)
 
 ### 세션 시작
@@ -362,6 +429,7 @@ CODEPRESSO_DRY_RUN=1 node scripts/daily-chat-summary.mjs
 | `codepresso:oncall-sync-calendar` | "온콜 캘린더 동기화" | Google Calendar와 DynamoDB 재동기화 |
 | `codepresso:oncall-seed-metadata` | "엔지니어 메타데이터 시드" | 배포 게이트 검증용 매핑 시드 |
 | `codepresso:oncall-runbook` | "온콜 런북", "sev1 어떻게 처리?" | `docs/oncall-runbook.md` 섹션 조회 |
+| 🆕 `codepresso:scaffolding-from-figma` | "이 figma 노드로 Vue scaffold 만들어줘", Figma URL + PAT 제공 | Figma PAT → REST API → 토큰 매핑 spec.md → designer-high agent → ~90% scaffold (퍼블리셔 1-2시간 마무리) |
 
 ---
 
