@@ -1,6 +1,6 @@
 {
   "name": "codepresso-plugin",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "Team workflow plugin - Notion sync, sprint workflow, PR activity tracking for Claude Code",
   "type": "module",
   "engines": {
