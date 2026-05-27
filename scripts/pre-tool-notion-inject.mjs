@@ -22,6 +22,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { getStateDir, loadConfig } from './lib/config.mjs';
+import { readWikiStatus, formatWikiNotice } from './lib/wiki-state.mjs';
 
 const STATE_DIR = getStateDir();
 const SESSION_FILE = join(STATE_DIR, 'codepresso-session.json');
@@ -309,20 +310,43 @@ function buildHierarchicalPickerContext(session) {
 }
 
 /**
- * Emit additionalContext and mark the picker as shown.
+ * Emit additionalContext and mark the picker (and optionally wiki notice) as shown.
+ * @param {object} session
+ * @param {string} context
+ * @param {string|null} [wikiNotice]
  */
-function emitAndMark(session, context) {
+function emitAndMark(session, context, wikiNotice) {
+  const fullContext = wikiNotice ? `${context}\n\n${wikiNotice}` : context;
   const output = JSON.stringify({
     continue: true,
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
-      additionalContext: context,
+      additionalContext: fullContext,
     },
   });
   process.stdout.write(output);
 
   session.notionContextShown = true;
+  if (wikiNotice) session.wikiNoticeShown = true;
   writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+}
+
+/**
+ * Emit ONLY the wiki staleness notice (no Notion context) and mark it shown.
+ * Used when there's no Notion context to surface but the wiki notice is pending.
+ */
+function emitWikiOnly(session, notice) {
+  process.stdout.write(JSON.stringify({
+    continue: true,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      additionalContext: notice,
+    },
+  }));
+  session.wikiNoticeShown = true;
+  try {
+    writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2), 'utf-8');
+  } catch { /* non-fatal */ }
 }
 
 /**
@@ -474,15 +498,22 @@ function handlePrCreate(command, session) {
 try {
   const session = JSON.parse(readFileSync(SESSION_FILE, 'utf-8'));
 
-  // Already shown — check for gh pr create interception
+  // Compute wiki notice once — only if not already shown this session
+  const wikiNotice = session.wikiNoticeShown ? null : formatWikiNotice(readWikiStatus());
+
+  // Already shown Notion context — check for gh pr create interception, then wiki notice
   if (session.notionContextShown) {
     if (
       toolName === 'Bash' &&
       /\bgh\s+pr\s+create\b/.test(toolInput.command || '')
     ) {
+      // Keep gh pr create handlers focused — don't attach wiki notice here
       if (!handlePrCreate(toolInput.command, session)) {
         process.stdout.write(JSON.stringify({ continue: true }));
       }
+    } else if (wikiNotice) {
+      // Notion context already shown; surface the wiki notice now
+      emitWikiOnly(session, wikiNotice);
     } else {
       process.stdout.write(JSON.stringify({ continue: true }));
     }
@@ -490,17 +521,17 @@ try {
   // Sprint context available — build hierarchical epic-grouped picker
   else if (session.sprintContext && session.notionTasks && session.notionTasks.length > 0) {
     const context = buildHierarchicalPickerContext(session);
-    emitAndMark(session, context);
+    emitAndMark(session, context, wikiNotice);
   }
   // Structured tasks available — build flat picker context (fallback)
   else if (session.notionTasks && session.notionTasks.length > 0) {
     const context = buildPickerContext(session.notionContext, session.notionTasks);
-    emitAndMark(session, context);
+    emitAndMark(session, context, wikiNotice);
   }
   // Only formatted text (legacy/fallback) — display as before
   else if (session.notionContext) {
     const context = `IMPORTANT: Display the following Notion tasks to the user immediately. Print them in a readable format so the user can see their current task status.\n\n${session.notionContext}`;
-    emitAndMark(session, context);
+    emitAndMark(session, context, wikiNotice);
   }
   // SessionStart fetch failed — retry as fallback (2s budget)
   else {
@@ -512,16 +543,22 @@ try {
         session.notionTasks = result.tasks;
         if (result.tasks.length > 0) {
           const context = buildPickerContext(result.formatted, result.tasks);
-          emitAndMark(session, context);
+          emitAndMark(session, context, wikiNotice);
         } else {
           const context = `IMPORTANT: Display the following Notion tasks to the user immediately.\n\n${result.formatted}`;
-          emitAndMark(session, context);
+          emitAndMark(session, context, wikiNotice);
         }
+      } else if (wikiNotice) {
+        emitWikiOnly(session, wikiNotice);
       } else {
         process.stdout.write(JSON.stringify({ continue: true }));
       }
     } catch {
-      process.stdout.write(JSON.stringify({ continue: true }));
+      if (wikiNotice) {
+        emitWikiOnly(session, wikiNotice);
+      } else {
+        process.stdout.write(JSON.stringify({ continue: true }));
+      }
     }
   }
 } catch {

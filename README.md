@@ -1,6 +1,6 @@
 # Codepresso
 
-Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스프린트 워크플로우 자동화, PR 연동 git 활동 추적, **Gmail + Google Chat 받은편지함 작업 트래커**, 평일 Google Chat 북엔드, **Figma → 프론트엔드 scaffold 자동화**, 선택적 배포 연동, 온콜 관리까지.
+Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스프린트 워크플로우 자동화, PR 연동 git 활동 추적, **Gmail + Google Chat 받은편지함 작업 트래커**, 평일 Google Chat 북엔드, **Figma → 프론트엔드 scaffold 자동화**, **개인 LLM Wiki**, 선택적 배포 연동, 온콜 관리까지.
 
 ---
 
@@ -16,7 +16,7 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 18시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송합니다.
 - **배포 연동** (선택): ECS, CodePipeline, GitHub Actions, 커스텀 명령어 중 원하는 방식으로 Claude Code에서 배포를 트리거할 수 있습니다.
 - **온콜 관리** (선택): DynamoDB + Google Calendar 기반 온콜 스케줄 조회/교체/생성, 런북 검색까지 Claude에서 한 번에.
-- **🆕 LLM Wiki** (선택): 개인 지식 베이스를 LLM이 유지·관리합니다. 소스를 ingest하면 서로 연결된 마크다운 페이지로 쌓이고(compounding), query/lint로 활용·점검합니다. 각자 자기 vault(Obsidian + git)를 가지므로 내용은 공유되지 않습니다.
+- **🆕 LLM Wiki (v0.2.13)** (선택): 개인 지식 베이스를 LLM이 유지·관리합니다. 소스를 ingest하면 서로 연결된 마크다운 페이지로 쌓이고(compounding), query/lint로 활용·점검합니다. 각자 자기 vault(Obsidian + git)를 가지므로 내용은 공유되지 않습니다.
 - **OMC 호환**: oh-my-claudecode와 충돌 없이 함께 동작합니다.
 - **모노레포 / 서브모듈 지원**: 모노레포 루트에서 작업할 때 서브모듈의 활성 PR을 자동 감지합니다.
 
@@ -46,6 +46,12 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **하드코딩 hex 0건 보장**: `$color-*` / `$space-*` / `$radius-*` 토큰을 자동으로 적용합니다.
 - **검증된 결과**: Codepresso 평가리포트 페이지 3개로 검증, 픽셀 일치율 HIGH 86.62% / MID 96.87% / LOW 96.71%.
 
+### 🧠 지식이 휘발되지 않습니다 (v0.2.13 🆕)
+- **대화를 넘어 남습니다**: 한 번 배운 것(AWS/인프라 패턴, 언어 함정, 팀 프로세스, 조사한 개념)을 위키 페이지로 캡처 → 다음 세션·다른 repo에서 그대로 재사용.
+- **쌓일수록 똑똑해집니다 (compounding)**: ingest할 때마다 페이지가 서로 연결되어 위키가 점점 풍부해집니다.
+- **인용 포함 답변**: query 시 어떤 페이지에서 나온 답인지 출처를 함께 보여줘 → 신뢰할 수 있는 개인 지식 베이스.
+- **개인 vault, 도구만 공유**: 각자 자기 Obsidian + git vault를 가지므로 내용은 공유되지 않으며, private remote를 붙이면 여러 컴퓨터에서 동기화됩니다.
+
 ### 👥 팀과의 가시성이 좋아집니다
 - **비동기 추적**: 모든 활동이 PR 코멘트와 Notion 상태로 흐릅니다. 팀원이 회의 없이 진행 상황을 따라갈 수 있습니다.
 - **공유 채널**: Google Chat 스페이스에서 아침/저녁 자동 메시지로 → 작업 현황 공유에 추가 작업이 들지 않습니다.
@@ -53,7 +59,7 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 
 ---
 
-## LLM Wiki (개인 지식 베이스)
+## 🆕 LLM Wiki (개인 지식 베이스, v0.2.13)
 
 LLM이 유지·관리하는 개인 위키. Karpathy의 [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 패턴 기반이며, **각자 자기 vault를 가집니다** (내용은 공유되지 않고, 도구만 공유).
 
@@ -65,6 +71,8 @@ LLM이 유지·관리하는 개인 위키. Karpathy의 [LLM Wiki](https://gist.g
 ```
 
 vault 위치는 `~/.codepresso/config.json`의 `wiki.vaultPath`로 바뀝니다. 여러 컴퓨터에서 쓰려면 vault에 private git remote를 직접 연결하세요. 자연어로 "이거 내 위키에 넣어줘"라고 해도 자동으로 동작합니다.
+
+원격(upstream)이 설정되어 있으면 세션 시작 시 백그라운드에서 `git fetch`를 실행하고, vault가 원격보다 뒤처져 있으면 첫 번째 도구 사용 시 알림을 표시합니다. **자동 병합은 절대 하지 않으며**, pull 여부는 항상 사용자가 결정합니다. 이 기능을 끄려면 `wiki.autoFetch: false`로 설정하세요.
 
 ---
 
@@ -446,6 +454,7 @@ CODEPRESSO_DRY_RUN=1 node scripts/daily-chat-summary.mjs
 | `codepresso:oncall-seed-metadata` | "엔지니어 메타데이터 시드" | 배포 게이트 검증용 매핑 시드 |
 | `codepresso:oncall-runbook` | "온콜 런북", "sev1 어떻게 처리?" | `docs/oncall-runbook.md` 섹션 조회 |
 | 🆕 `codepresso:scaffolding-from-figma` | "이 figma 노드로 Vue scaffold 만들어줘", Figma URL + PAT 제공 | Figma PAT → REST API → 토큰 매핑 spec.md → designer-high agent → ~90% scaffold (퍼블리셔 1-2시간 마무리) |
+| 🆕 `codepresso:llm-wiki` | "/codepresso:llm-wiki ...", "이거 내 위키에 넣어줘", "내 위키에 X 있어?", "위키 lint" | 개인 LLM Wiki(Obsidian + git) init/ingest/query/lint — 대화를 넘어 쌓이는 지식 베이스 |
 
 ---
 
