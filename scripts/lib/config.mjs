@@ -84,6 +84,7 @@ const DEFAULT_CONFIG = {
     enabled: false,                              // Set true after `node scripts/wiki-cli.mjs init`
     vaultPath: '~/Documents/Obsidian/llm-wiki',  // ~ expanded at use; each user keeps their OWN vault
     remote: null,                                // Optional git remote (e.g. private GitHub repo) for multi-machine sync
+    autoFetch: true,                             // Spawn detached git fetch on session start (fetch-only, never auto-merges)
   },
   excludePatterns: [
     '^/',                              // All slash commands (/help, /status, /commit, etc.)
@@ -308,6 +309,9 @@ export function validateConfig(config) {
     }
     if (typeof config.wiki.vaultPath !== 'undefined' && typeof config.wiki.vaultPath !== 'string') {
       warnings.push(`wiki.vaultPath should be a string, got ${typeof config.wiki.vaultPath}`);
+    }
+    if (typeof config.wiki.autoFetch !== 'undefined' && typeof config.wiki.autoFetch !== 'boolean') {
+      warnings.push(`wiki.autoFetch should be boolean, got ${typeof config.wiki.autoFetch}`);
     }
   }
 

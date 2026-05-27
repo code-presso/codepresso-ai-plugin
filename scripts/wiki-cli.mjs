@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from './lib/config.mjs';
+import { WIKI_STATUS_FILE } from './lib/wiki-state.mjs';
 
 const cwd = process.cwd();
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -134,12 +135,84 @@ switch (cmd) {
     out({ initialized: true, vaultPath: resolved, git, configUpdated: true });
     break;
   }
+  case 'fetch': {
+    // Fully defensive — runs detached; must never crash loudly.
+    const checkedAt = new Date().toISOString();
+
+    let config;
+    try {
+      config = loadConfig(cwd);
+    } catch {
+      // Can't load config — write a safe status and exit cleanly.
+      const statusDir = dirname(WIKI_STATUS_FILE);
+      try { mkdirSync(statusDir, { recursive: true }); } catch { /* ignore */ }
+      try {
+        writeFileSync(WIKI_STATUS_FILE, JSON.stringify({ behind: 0, error: 'config-load-failed', checkedAt }, null, 2) + '\n', 'utf-8');
+      } catch { /* ignore */ }
+      process.exit(0);
+    }
+
+    const { resolved: vault } = resolveVaultPath(config, arg);
+    const statusDir = dirname(WIKI_STATUS_FILE);
+    try { mkdirSync(statusDir, { recursive: true }); } catch { /* ignore */ }
+
+    function writeStatus(obj) {
+      try {
+        writeFileSync(WIKI_STATUS_FILE, JSON.stringify(obj, null, 2) + '\n', 'utf-8');
+      } catch { /* ignore */ }
+      out(obj);
+    }
+
+    // Vault directory or .git must exist
+    if (!existsSync(vault) || !existsSync(join(vault, '.git'))) {
+      writeStatus({ behind: 0, error: 'not-a-git-repo', checkedAt, vaultPath: vault });
+      process.exit(0);
+    }
+
+    // git fetch
+    try {
+      execFileSync('git', ['-C', vault, 'fetch'], { cwd: vault, stdio: 'ignore', timeout: 15000 });
+    } catch {
+      writeStatus({ behind: 0, error: 'fetch-failed', checkedAt, vaultPath: vault });
+      process.exit(0);
+    }
+
+    // Determine upstream branch
+    let upstream;
+    try {
+      upstream = execFileSync('git', ['-C', vault, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { cwd: vault, encoding: 'utf-8', timeout: 5000 }).trim();
+    } catch {
+      writeStatus({ behind: 0, error: 'no-upstream', checkedAt, vaultPath: vault });
+      process.exit(0);
+    }
+
+    // Count commits behind
+    let behind = 0;
+    try {
+      const raw = execFileSync('git', ['-C', vault, 'rev-list', '--count', `HEAD..${upstream}`], { cwd: vault, encoding: 'utf-8', timeout: 5000 }).trim();
+      behind = parseInt(raw, 10);
+      if (!Number.isFinite(behind) || behind < 0) behind = 0;
+    } catch {
+      writeStatus({ behind: 0, error: 'rev-list-failed', checkedAt, vaultPath: vault });
+      process.exit(0);
+    }
+
+    // Current branch name
+    let branch = null;
+    try {
+      branch = execFileSync('git', ['-C', vault, 'rev-parse', '--abbrev-ref', 'HEAD'], { cwd: vault, encoding: 'utf-8', timeout: 5000 }).trim();
+    } catch { /* non-fatal */ }
+
+    writeStatus({ behind, branch, upstream, vaultPath: vault, checkedAt, error: null });
+    process.exit(0);
+  }
   default: {
     process.stderr.write(
       'wiki-cli: unknown command\n' +
       'usage:\n' +
       '  node scripts/wiki-cli.mjs path [override-path]   # resolve configured vault path\n' +
-      '  node scripts/wiki-cli.mjs init [path]            # scaffold vault + git + write config\n'
+      '  node scripts/wiki-cli.mjs init [path]            # scaffold vault + git + write config\n' +
+      '  node scripts/wiki-cli.mjs fetch                  # git fetch + write ~/.codepresso/wiki-status.json\n'
     );
     process.exit(2);
   }

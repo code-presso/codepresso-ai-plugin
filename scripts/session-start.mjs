@@ -120,6 +120,26 @@ function spawnDailyGreeting(tasks, config, gitRoot) {
   }
 }
 
+/**
+ * Spawn a detached git fetch for the LLM Wiki vault.
+ * Mirrors spawnDailyGreeting — zero added latency to the hook.
+ */
+function spawnWikiFetch(config) {
+  try {
+    if (config.wiki?.enabled !== true) return;
+    if (config.wiki?.autoFetch === false) return;
+    const child = spawn(
+      process.execPath,
+      [join(__dirname, 'wiki-cli.mjs'), 'fetch'],
+      { detached: true, stdio: 'ignore', cwd: process.cwd() }
+    );
+    child.unref();
+    log.info('Wiki fetch process spawned');
+  } catch (err) {
+    log.error(`Failed to spawn wiki fetch: ${err.message}`);
+  }
+}
+
 function ensureStateDir() {
   try {
     mkdirSync(STATE_DIR, { recursive: true });
@@ -257,6 +277,9 @@ async function main() {
       markInboxScanScheduled(today);
       log.info(`Inbox scan instruction injected (today=${today})`);
     }
+
+    // Spawn detached wiki fetch (fetch-only, never blocks or auto-merges)
+    spawnWikiFetch(config);
 
     const sessionState = {
       gitRoot,

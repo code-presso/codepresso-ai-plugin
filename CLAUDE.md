@@ -121,7 +121,7 @@ Tasks arriving via Gmail or Google Chat are surfaced by a markdown skill (`skill
 ### SessionStart (`scripts/session-start.mjs`)
 - **Timeout:** 5s
 - **Output:** `{ continue: true, additionalContext?: string }`
-- **Side effects:** Writes `.codepresso/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs, sprint context). Scans submodules for active PRs when top-level repo has none.
+- **Side effects:** Writes `.codepresso/state/codepresso-session.json` (gitRoot, activeSubmodule, branch, PR, Notion tasks with unique IDs, sprint context). Scans submodules for active PRs when top-level repo has none. Spawns detached `wiki-cli.mjs fetch` when `wiki.enabled` and `wiki.autoFetch !== false`.
 - **Failure mode:** Silent
 
 ### PreToolUse (`scripts/pre-tool-notion-inject.mjs`)
@@ -131,6 +131,7 @@ Tasks arriving via Gmail or Google Chat are surfaced by a markdown skill (`skill
 - **Behavior 1 — Task Picker:** On first tool use, injects cached Notion tasks as `additionalContext` with instructions for Claude to present an interactive `AskUserQuestion` picker.
 - **Behavior 2 — PR Title Enforcement:** On `gh pr create` Bash commands, reads the selected task. If a task with a `uniqueId` is selected and the PR title doesn't include it, **blocks** the command.
 - **Behavior 3 — PR Link Enforcement (no-task case):** On `gh pr create` without a selected task, blocks with a pick-or-create `AskUserQuestion`. Falls through silently when Notion is unconfigured.
+- **Behavior 4 — Wiki staleness notice:** Injects a one-time "vault is N commits behind" notice from `~/.codepresso/wiki-status.json`. Shown once per session (gated by `session.wikiNoticeShown`). Never auto-merges; user decides whether to pull.
 - **Failure mode:** Silent
 
 ### PostToolUse:Bash (`scripts/post-tool-git-watcher.mjs`)
@@ -162,6 +163,7 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
 |------|--------|---------|
 | `daily-greeting.json` | JSON | Last greeting date (`{ lastDate: "YYYY-MM-DD" }`) |
 | `inbox-last-run.json` | JSON | Last date the inbox scan instruction was injected (`{ lastDate: "YYYY-MM-DD" }`) |
+| `wiki-status.json` | JSON | LLM Wiki fetch result (behind count, upstream, vaultPath). Written by detached `wiki-cli.mjs fetch`. |
 
 ---
 
@@ -218,6 +220,11 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
     "classifier": { "maxCandidatesPerScan": 10 },
     "notion": { "taskDatabaseId": null, "dueDateProperty": "마감일", "defaultDueOption": "Tomorrow" },
     "reminder": { "showOverdue": true, "showDueToday": true, "maxPerSection": 5 }
+  },
+  "wiki": {
+    "enabled": false,                              // Set true after `node scripts/wiki-cli.mjs init`
+    "vaultPath": "~/Documents/Obsidian/llm-wiki",  // ~ expanded at use
+    "autoFetch": true                              // Spawn detached git fetch on session start (set false to disable)
   },
   "excludePatterns": [                             // Regex patterns (kept for future use)
     "^/",
