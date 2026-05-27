@@ -80,6 +80,11 @@ const DEFAULT_CONFIG = {
     },
     reminder: { showOverdue: true, showDueToday: true, maxPerSection: 5 },
   },
+  wiki: {
+    enabled: false,                              // Set true after `node scripts/wiki-cli.mjs init`
+    vaultPath: '~/Documents/Obsidian/llm-wiki',  // ~ expanded at use; each user keeps their OWN vault
+    remote: null,                                // Optional git remote (e.g. private GitHub repo) for multi-machine sync
+  },
   excludePatterns: [
     '^/',                              // All slash commands (/help, /status, /commit, etc.)
     '(executed|registered)',           // System execution messages
@@ -215,7 +220,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'inbox', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'inbox', 'wiki', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
@@ -294,6 +299,15 @@ export function validateConfig(config) {
     }
     if (config.inbox.ignoreSenders && !Array.isArray(config.inbox.ignoreSenders)) {
       warnings.push(`inbox.ignoreSenders should be an array, got ${typeof config.inbox.ignoreSenders}`);
+    }
+  }
+
+  if (config.wiki) {
+    if (typeof config.wiki.enabled !== 'undefined' && typeof config.wiki.enabled !== 'boolean') {
+      warnings.push(`wiki.enabled should be boolean, got ${typeof config.wiki.enabled}`);
+    }
+    if (typeof config.wiki.vaultPath !== 'undefined' && typeof config.wiki.vaultPath !== 'string') {
+      warnings.push(`wiki.vaultPath should be a string, got ${typeof config.wiki.vaultPath}`);
     }
   }
 
