@@ -16,6 +16,7 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 18시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송합니다.
 - **배포 연동** (선택): ECS, CodePipeline, GitHub Actions, 커스텀 명령어 중 원하는 방식으로 Claude Code에서 배포를 트리거할 수 있습니다.
 - **온콜 관리** (선택): DynamoDB + Google Calendar 기반 온콜 스케줄 조회/교체/생성, 런북 검색까지 Claude에서 한 번에.
+- **🆕 LLM Wiki** (선택): 개인 지식 베이스를 LLM이 유지·관리합니다. 소스를 ingest하면 서로 연결된 마크다운 페이지로 쌓이고(compounding), query/lint로 활용·점검합니다. 각자 자기 vault(Obsidian + git)를 가지므로 내용은 공유되지 않습니다.
 - **OMC 호환**: oh-my-claudecode와 충돌 없이 함께 동작합니다.
 - **모노레포 / 서브모듈 지원**: 모노레포 루트에서 작업할 때 서브모듈의 활성 PR을 자동 감지합니다.
 
@@ -49,6 +50,21 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **비동기 추적**: 모든 활동이 PR 코멘트와 Notion 상태로 흐릅니다. 팀원이 회의 없이 진행 상황을 따라갈 수 있습니다.
 - **공유 채널**: Google Chat 스페이스에서 아침/저녁 자동 메시지로 → 작업 현황 공유에 추가 작업이 들지 않습니다.
 - **자동 라벨링**: PR에 자동으로 `ai-assisted` 라벨이 붙어 → AI 협업 비율 파악에 도움.
+
+---
+
+## LLM Wiki (개인 지식 베이스)
+
+LLM이 유지·관리하는 개인 위키. Karpathy의 [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 패턴 기반이며, **각자 자기 vault를 가집니다** (내용은 공유되지 않고, 도구만 공유).
+
+```
+/codepresso:llm-wiki init                  # 내 vault 생성 (Obsidian + git, 기본 ~/Documents/Obsidian/llm-wiki)
+/codepresso:llm-wiki ingest <url|메모>      # 소스를 캡처해 연결된 페이지로 통합
+/codepresso:llm-wiki query <질문>           # 위키에서 인용 포함 답변
+/codepresso:llm-wiki lint                  # 모순/오래된 내용/고아 페이지 점검
+```
+
+vault 위치는 `~/.codepresso/config.json`의 `wiki.vaultPath`로 바뀝니다. 여러 컴퓨터에서 쓰려면 vault에 private git remote를 직접 연결하세요. 자연어로 "이거 내 위키에 넣어줘"라고 해도 자동으로 동작합니다.
 
 ---
 

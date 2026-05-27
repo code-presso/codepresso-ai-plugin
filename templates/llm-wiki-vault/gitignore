@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Obsidian per-machine UI state (keep app.json etc. tracked)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/workspace*.json
+.obsidian/cache
+
+# Obsidian trash
+.trash/
