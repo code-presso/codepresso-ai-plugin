@@ -1,3 +1,8 @@
+---
+name: sprint-dashboard
+description: Display current sprint progress with epic breakdown and task status.
+---
+
 # Sprint Dashboard
 
 Display current sprint progress with epic breakdown and task status.

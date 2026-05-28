@@ -78,6 +78,66 @@ vault 위치는 `~/.codepresso/config.json`의 `wiki.vaultPath`로 바뀝니다.
 
 ## 설치
 
+### Codex
+
+Codex에서는 플러그인 source를 개인 marketplace에 등록한 뒤 설치합니다.
+
+```bash
+mkdir -p ~/plugins ~/.agents/plugins
+git clone https://github.com/code-presso/codepresso-ai-plugin.git ~/plugins/codepresso
+cd ~/plugins/codepresso
+npm install
+```
+
+`~/.agents/plugins/marketplace.json`에 아래 entry를 추가합니다. 이미 `plugins` 배열이
+있다면 entry만 추가하세요.
+
+```json
+{
+  "name": "personal",
+  "interface": {
+    "displayName": "Personal"
+  },
+  "plugins": [
+    {
+      "name": "codepresso",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codepresso"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+그 다음 설치합니다.
+
+```bash
+codex plugin add codepresso@personal
+```
+
+자동 업데이트를 켜려면 [docs/plugin-auto-update.md](docs/plugin-auto-update.md)의 Codex 섹션처럼
+로컬 clone을 주기적으로 `git pull --ff-only` 한 뒤 `codex plugin add codepresso@personal`로
+재설치하도록 cron을 설정하세요.
+
+설치 후 새 Codex thread를 열면 skills와 MCP 설정이 로드됩니다. 주요 명령어:
+
+```text
+/codepresso:setup
+/codepresso:status
+/codepresso:notion-sync
+/codepresso:sprint-dashboard
+/codepresso:sprint-retro
+/codepresso:llm-wiki
+/codepresso:cloud-dev
+/codepresso:deploy
+```
+
 ### 옵션 A: 플러그인 디렉터리에 심볼릭 링크
 
 ```bash
@@ -89,6 +149,12 @@ ln -s /path/to/codepresso-plugin ~/.claude/plugins/codepresso
 ```bash
 claude plugin add ./codepresso-plugin
 ```
+
+### Claude marketplace 자동 업데이트
+
+Claude Code에서는 GitHub marketplace에 `autoUpdate: true`를 설정할 수 있습니다.
+예시는 [docs/claude-settings.auto-update.example.json](docs/claude-settings.auto-update.example.json)와
+[docs/plugin-auto-update.md](docs/plugin-auto-update.md)를 참고하세요.
 
 ### 의존성 설치
 

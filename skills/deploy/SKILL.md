@@ -1,7 +1,10 @@
 ---
 name: deploy
 description: Trigger deployment to AWS (optional, team-configurable)
-trigger: "deploy", "trigger deploy", "deploy to"
+trigger:
+  - deploy
+  - trigger deploy
+  - deploy to
 ---
 
 # Deploy Skill

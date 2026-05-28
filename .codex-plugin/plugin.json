@@ -1,0 +1,34 @@
+{
+  "name": "codepresso",
+  "version": "0.2.14",
+  "description": "Team workflow - Notion sync, sprint workflow, PR activity tracking + Figma scaffold pipeline",
+  "author": {
+    "name": "Code Presso"
+  },
+  "repository": "https://github.com/code-presso/codepresso-ai-plugin",
+  "keywords": [
+    "codepresso",
+    "notion-sync",
+    "sprint-workflow",
+    "pr-tracking",
+    "figma-scaffold",
+    "llm-wiki"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Codepresso",
+    "shortDescription": "Team workflow helpers for Codepresso.",
+    "longDescription": "Adds Codepresso team workflow skills, Notion sync, sprint workflows, PR activity tracking, cloud dev helpers, and Figma scaffold pipeline support.",
+    "developerName": "Code Presso",
+    "category": "Productivity",
+    "capabilities": [
+      "Notion sync",
+      "Sprint workflow",
+      "PR activity tracking",
+      "Cloud dev helpers",
+      "Figma scaffolding"
+    ],
+    "defaultPrompt": "Help me use the Codepresso team workflow."
+  }
+}
