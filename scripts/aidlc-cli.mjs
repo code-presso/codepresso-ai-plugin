@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detect } from './lib/aidlc-detect.mjs';
 import { scan } from './lib/aidlc-scan.mjs';
@@ -25,7 +25,7 @@ function testCmd(ctx) {
 function applyStatic(ctx) {
   const sc = scan(root, ctx);
   const vars = {
-    PROJECT_NAME: root.split('/').pop(),
+    PROJECT_NAME: basename(root) || 'project',
     STACKS: ctx.stacks.map(s => s.stack).join(', ') || 'unknown',
     TICKET_PREFIX: ctx.tickets.sample ? ctx.tickets.sample.split('-')[0] : 'TASK',
     HOST: ctx.host || 'unknown',
@@ -49,7 +49,7 @@ switch (cmd) {
   case 'detect': out(detect(root)); break;
   case 'scan': out(scan(root, detect(root))); break;
   case 'score': out(scan(root, detect(root)).score); break;
-  case 'plan': out(planFiles(scan(root, detect(root)), detect(root))); break;
+  case 'plan': { const ctx = detect(root); out(planFiles(scan(root, ctx), ctx)); break; }
   case 'apply-static': out(applyStatic(detect(root))); break;
   default:
     process.stderr.write(`usage: aidlc-cli <detect|scan|score|plan|apply-static> <path>\n`);

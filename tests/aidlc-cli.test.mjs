@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -30,10 +30,14 @@ describe('aidlc-cli', () => {
     assert.ok(out.some(f => f.key === 'agents-md'));
     rmSync(d, { recursive: true, force: true });
   });
-  it('apply-static → creates doc-policy, skips if present', () => {
+  it('apply-static → creates doc-policy, never overwrites existing', () => {
     const d = tmp();
     run(['apply-static', d], d);
     assert.ok(existsSync(join(d, 'docs/documentation-policy.md')));
+    // mutate the created file, re-run, confirm NOT overwritten
+    writeFileSync(join(d, 'docs/documentation-policy.md'), 'USER EDIT');
+    run(['apply-static', d], d);
+    assert.equal(readFileSync(join(d, 'docs/documentation-policy.md'), 'utf8'), 'USER EDIT');
     rmSync(d, { recursive: true, force: true });
   });
 });
