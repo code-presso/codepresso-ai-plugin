@@ -14,10 +14,10 @@ Report how compliant a repo is against the 16-item AI-native template, without c
 
 <Steps>
 1. Resolve `<target-path>` (default = current project).
-2. Run `node ${plugin}/scripts/aidlc-cli.mjs scan <path>`.
+2. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc-cli.mjs" scan <path>`.
 3. Show the 16-item table (status + evidence + reason) and overall %.
 4. If `secrets[]` non-empty → 🔴 surface (masked), recommend rotation. Never echo the raw value.
-5. List the top missing/partial gaps, ordered by value. Suggest `/codepresso:aidlc-init <path>` to fix.
+5. List the top missing/partial gaps, ordered by value. Mark gaps that the scaffolder cannot auto-create (`hooks`, `unit-tests`, `runbook`) as **manual setup**. Suggest `/codepresso:aidlc-init <path>` to fix.
 6. Do NOT write or modify any file.
 </Steps>
 

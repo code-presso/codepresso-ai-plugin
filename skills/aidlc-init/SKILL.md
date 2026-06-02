@@ -15,7 +15,7 @@ Bring any repo up to the team's 16-item "AI-native repo" template. Diagnose what
 <Steps>
 1. Resolve `<target-path>` (default = current project). Confirm it's a git repo; if not, warn and ask whether to continue.
 
-2. **Analyze (CLI):** run `node ${plugin}/scripts/aidlc-cli.mjs detect <path>` then `... scan <path>`.
+2. **Analyze (CLI):** run `node "${CLAUDE_PLUGIN_ROOT}/scripts/aidlc-cli.mjs" detect <path>` then `... scan <path>`.
    Show the user a compact 16-item table (status + evidence) and the overall %. If `secrets[]` is non-empty, surface a 🔴 warning at the top and tell the user to rotate them — do NOT copy any secret value anywhere.
 
 3. **Interview (AskUserQuestion, only the non-inferable):**
@@ -24,7 +24,7 @@ Bring any repo up to the team's 16-item "AI-native repo" template. Diagnose what
    - Integrations on/off (Notion/Figma/Google/AWS): default ALL OFF.
    - Ticket convention: confirm prefix (e.g. `TSK-`) or "none".
 
-4. **Preview (CLI):** run `... plan <path>`. Show the file tree to be created, marking each as static vs authored. Ask for explicit confirmation. Do NOT write anything before confirmation.
+4. **Preview (CLI):** run `... plan <path>`. Show the file tree to be created, marking each as static vs authored. Also list any MISSING scorecard item that does NOT appear in the `plan` output and is not in the authored list above (e.g. `hooks`, `unit-tests`, `runbook`) as **'manual setup required — not auto-created'**, so the user knows these gaps remain after apply. Ask for explicit confirmation. Do NOT write anything before confirmation.
 
 5. **Apply:**
    a. Static: run `... apply-static <path>` (copies canonical templates, non-destructive).
@@ -35,7 +35,7 @@ Bring any repo up to the team's 16-item "AI-native repo" template. Diagnose what
       - If `structure=mono`: for each submodule, author `<submodule>/CLAUDE.md` with that submodule's stack-specific guidance (this is the submodule's authoritative file).
       - `.codesight/CODESIGHT.md` — a structural summary (key dirs, entry points, how to run). For very large monorepos, summarize and **log what you omitted** (never silently truncate).
 
-6. **Re-score (CLI):** run `... score <path>` and report the new % + remaining gaps.
+6. **Re-score (CLI):** run `... score <path>` and report the new % + remaining gaps. Explicitly restate any still-missing items that require manual setup.
 
 7. End with a navigation hint: `💡 /codepresso:aidlc-doctor <path> — re-check compliance anytime`.
 </Steps>

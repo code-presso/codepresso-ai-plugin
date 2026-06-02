@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detect } from './lib/aidlc-detect.mjs';
@@ -47,7 +47,13 @@ function applyStatic(ctx) {
 
 switch (cmd) {
   case 'detect': out(detect(root)); break;
-  case 'scan': out(scan(root, detect(root))); break;
+  case 'scan': {
+    const sc = scan(root, detect(root));
+    const stateDir = join(root, '.codepresso/state');
+    try { mkdirSync(stateDir, { recursive: true }); writeFileSync(join(stateDir, 'aidlc-scorecard.json'), JSON.stringify(sc, null, 2)); } catch {}
+    out(sc);
+    break;
+  }
   case 'score': out(scan(root, detect(root)).score); break;
   case 'plan': { const ctx = detect(root); out(planFiles(scan(root, ctx), ctx)); break; }
   case 'apply-static': out(applyStatic(detect(root))); break;

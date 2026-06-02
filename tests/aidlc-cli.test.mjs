@@ -30,6 +30,12 @@ describe('aidlc-cli', () => {
     assert.ok(out.some(f => f.key === 'agents-md'));
     rmSync(d, { recursive: true, force: true });
   });
+  it('scan writes aidlc-scorecard.json to target state dir', () => {
+    const d = tmp();
+    run(['scan', d], d);
+    assert.ok(existsSync(join(d, '.codepresso/state/aidlc-scorecard.json')));
+    rmSync(d, { recursive: true, force: true });
+  });
   it('apply-static → creates doc-policy, never overwrites existing', () => {
     const d = tmp();
     run(['apply-static', d], d);
