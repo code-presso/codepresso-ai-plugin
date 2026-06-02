@@ -16,7 +16,7 @@ export const ITEMS = [
   { id: 3, key: 'submodule-claude', name: 'Per-submodule CLAUDE.md', kind: 'authored',
     detect: (r, ctx) => {
       if (ctx.structure !== 'mono') return result('na', [], 'single-package repo');
-      const subs = ctx.submodules.length ? ctx.submodules : [];
+      const subs = ctx.submodules;
       const withClaude = subs.filter(s => has(r, join(s, 'CLAUDE.md')));
       if (subs.length === 0) return result('na', []);
       if (withClaude.length === subs.length) return result('present', withClaude.map(s => join(s, 'CLAUDE.md')));
@@ -44,8 +44,10 @@ export const ITEMS = [
   { id: 9, key: 'hooks', name: 'Session/automation hooks', kind: 'static',
     detect: (r) => {
       if (has(r, 'hooks/hooks.json')) return result('present', ['hooks/hooks.json']);
-      for (const s of ['.claude/settings.json', '.claude/settings.local.json'])
-        if (has(r, s) && readFileSync(join(r, s), 'utf8').includes('hooks')) return result('present', [s]);
+      for (const s of ['.claude/settings.json', '.claude/settings.local.json']) {
+        if (!has(r, s)) continue;
+        try { if (readFileSync(join(r, s), 'utf8').includes('hooks')) return result('present', [s]); } catch {}
+      }
       return result('missing');
     } },
   { id: 10, key: 'permission-matrix', name: 'Permission matrix', kind: 'static',
@@ -59,7 +61,9 @@ export const ITEMS = [
       const dir = '.github/workflows';
       let files = [];
       try { files = readdirSync(join(r, dir)).filter(f => /\.ya?ml$/.test(f)); } catch { return result('missing'); }
-      const prFile = files.find(f => readFileSync(join(r, dir, f), 'utf8').includes('pull_request'));
+      const prFile = files.find(f => {
+        try { return readFileSync(join(r, dir, f), 'utf8').includes('pull_request'); } catch { return false; }
+      });
       if (prFile) return result('present', [join(dir, prFile)]);
       if (files.length) return result('partial', [dir], 'workflows exist but none PR-triggered');
       return result('missing');
@@ -73,7 +77,11 @@ export const ITEMS = [
   { id: 14, key: 'feature-flags', name: 'Graceful degradation / feature flags', kind: 'static',
     detect: (r) => result('partial', [], 'needs-confirm: integration gating reviewed in interview') },
   { id: 15, key: 'pre-push', name: 'Pre-push / pre-merge validation', kind: 'static',
-    detect: (r) => has(r, 'scripts/check-before-push.sh') ? result('present', ['scripts/check-before-push.sh']) : result('missing') },
+    detect: (r) => {
+      for (const p of ['scripts/check-before-push.sh', '.husky/pre-push', '.git/hooks/pre-push'])
+        if (has(r, p)) return result('present', [p]);
+      return result('missing');
+    } },
   { id: 16, key: 'unit-tests', name: 'Unit tests for deterministic logic', kind: 'static',
     detect: (r) => {
       if (!has(r, 'package.json')) return has(r, 'tests') ? result('present', ['tests/']) : result('missing');
@@ -114,7 +122,7 @@ export function scanSecrets(rootDir) {
     const text = readFileSync(p, 'utf8');
     for (const { kind, re } of SECRET_PATTERNS) {
       const m = text.match(re);
-      if (m) found.push({ file: rel, kind, masked: m[0].slice(0, 8) + '…[REDACTED]' });
+      if (m) for (const tok of m) found.push({ file: rel, kind, masked: tok.slice(0, 8) + '…[REDACTED]' });
     }
   }
   return found;

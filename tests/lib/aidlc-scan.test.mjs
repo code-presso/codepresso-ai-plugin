@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ITEMS, scanItem, computeScore } from '../../scripts/lib/aidlc-scan.mjs';
-import { scanSecrets, scan } from '../../scripts/lib/aidlc-scan.mjs';
+import { ITEMS, scanItem, computeScore, scanSecrets, scan } from '../../scripts/lib/aidlc-scan.mjs';
 
 function tmpRepo() { return mkdtempSync(join(tmpdir(), 'aidlc-scan-')); }
 const ctx = { structure: 'single', submodules: [], stacks: [{ path: '.', stack: 'node' }], host: 'github', tickets: { hasTickets: false } };
@@ -112,6 +111,27 @@ describe('scan (composite)', () => {
     const r = scan(d, ctx);
     assert.equal(r.results.length, 16);
     assert.ok(r.score.percent <= 10);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('scanSecrets — multiple', () => {
+  it('reports every token, not just the first', () => {
+    const d = mkdtempSync(join(tmpdir(), 'aidlc-scan-'));
+    mkdirSync(join(d, '.claude'), { recursive: true });
+    writeFileSync(join(d, '.claude/settings.local.json'), 'a ntn_AAAAAAAAAA1111111111 b ntn_BBBBBBBBBB2222222222');
+    const s = scanSecrets(d);
+    assert.equal(s.length, 2);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detector: pre-push (#15) husky', () => {
+  it('present with .husky/pre-push', () => {
+    const d = mkdtempSync(join(tmpdir(), 'aidlc-scan-'));
+    mkdirSync(join(d, '.husky'), { recursive: true });
+    writeFileSync(join(d, '.husky/pre-push'), '#!/bin/sh');
+    assert.equal(scanItem(d, ctx, ITEMS.find(i=>i.key==='pre-push')).status, 'present');
     rmSync(d, { recursive: true, force: true });
   });
 });
