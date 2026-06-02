@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectSubmodules, detectStructure } from '../../scripts/lib/aidlc-detect.mjs';
+import { execFileSync } from 'node:child_process';
+import { detectSubmodules, detectStructure, detectStacks, detectHost, detectTickets, detect } from '../../scripts/lib/aidlc-detect.mjs';
 
 function tmpRepo() { return mkdtempSync(join(tmpdir(), 'aidlc-')); }
 
@@ -41,6 +42,67 @@ describe('detectStructure', () => {
     const d = tmpRepo();
     writeFileSync(join(d, 'package.json'), '{}');
     assert.equal(detectStructure(d), 'single');
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detectStacks', () => {
+  it('maps manifests to stacks for single repo', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'package.json'), '{}');
+    assert.deepEqual(detectStacks(d, { structure: 'single', submodules: [] }), [{ path: '.', stack: 'node' }]);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('maps per-submodule for mono', () => {
+    const d = tmpRepo();
+    mkdirSync(join(d, 'be')); writeFileSync(join(d, 'be/pom.xml'), '<project/>');
+    mkdirSync(join(d, 'infra')); writeFileSync(join(d, 'infra/main.tf'), '');
+    const got = detectStacks(d, { structure: 'mono', submodules: ['be', 'infra'] });
+    assert.deepEqual(got.sort((a,b)=>a.path<b.path?-1:1),
+      [{ path: 'be', stack: 'java' }, { path: 'infra', stack: 'terraform' }]);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detectHost', () => {
+  it('reads github from git remote', () => {
+    const d = tmpRepo();
+    execFileSync('git', ['init', '-q'], { cwd: d });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/x/y.git'], { cwd: d });
+    assert.equal(detectHost(d), 'github');
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('null when no remote', () => {
+    const d = tmpRepo();
+    execFileSync('git', ['init', '-q'], { cwd: d });
+    assert.equal(detectHost(d), null);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detectTickets', () => {
+  it('finds ticket pattern in git log', () => {
+    const d = tmpRepo();
+    execFileSync('git', ['init', '-q'], { cwd: d });
+    execFileSync('git', ['-c', 'user.email=a@b.c', '-c', 'user.name=t', 'commit', '--allow-empty', '-q', '-m', 'TSK-123 do thing'], { cwd: d });
+    const r = detectTickets(d);
+    assert.equal(r.hasTickets, true);
+    assert.match(r.sample, /TSK-123/);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detect', () => {
+  it('returns the composite shape', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'package.json'), '{}');
+    execFileSync('git', ['init', '-q'], { cwd: d });
+    const r = detect(d);
+    assert.equal(r.structure, 'single');
+    assert.deepEqual(r.submodules, []);
+    assert.deepEqual(r.stacks, [{ path: '.', stack: 'node' }]);
+    assert.equal(r.host, null);
+    assert.equal(typeof r.tickets.hasTickets, 'boolean');
     rmSync(d, { recursive: true, force: true });
   });
 });
