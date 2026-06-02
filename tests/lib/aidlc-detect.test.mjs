@@ -90,6 +90,16 @@ describe('detectTickets', () => {
     assert.match(r.sample, /TSK-123/);
     rmSync(d, { recursive: true, force: true });
   });
+  it('returns hasTickets:false when no ticket pattern', () => {
+    const d = tmpRepo();
+    execFileSync('git', ['init', '-q'], { cwd: d });
+    execFileSync('git', ['-c', 'user.email=a@b.c', '-c', 'user.name=t',
+      'commit', '--allow-empty', '-q', '-m', 'fix typo'], { cwd: d });
+    const r = detectTickets(d);
+    assert.equal(r.hasTickets, false);
+    assert.equal(r.sample, null);
+    rmSync(d, { recursive: true, force: true });
+  });
 });
 
 describe('detect', () => {

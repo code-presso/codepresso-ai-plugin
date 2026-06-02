@@ -47,10 +47,14 @@ function stackOf(dir) {
 export function detectStacks(rootDir, { structure, submodules }) {
   const out = [];
   if (structure === 'mono') {
-    const dirs = submodules.length ? submodules
-      : readdirSync(rootDir, { withFileTypes: true })
+    let dirs = submodules;
+    if (!dirs.length) {
+      try {
+        dirs = readdirSync(rootDir, { withFileTypes: true })
           .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
           .map(e => e.name);
+      } catch { dirs = []; }
+    }
     for (const p of dirs) { const s = stackOf(join(rootDir, p)); if (s) out.push({ path: p, stack: s }); }
   } else {
     const s = stackOf(rootDir); if (s) out.push({ path: '.', stack: s });
