@@ -159,8 +159,9 @@
 - `.claude/settings.json`(안전한 권한 설정 기본형 — **비밀값 없음**)
 - `.github/workflows/ci.yml`(PR 올릴 때 테스트 도는 설정)
 - `scripts/check-before-push.sh`(푸시 전 비밀값·미반영 변경 점검)
-- `.gitignore`에 추가할 항목들(상태 폴더, 개인 설정 파일 등)
 - `docs/superpowers/{specs,plans}/README.md`(폴더 규칙 안내)
+
+> `.gitignore` 항목 추가는 v1에서 제외. 기존 `.gitignore`에 "추가"하는 것은 create-only 비파괴 모델(있으면 건너뜀)과 맞지 않아, 별도 append-안전 처리가 필요하므로 후속으로 미룸.
 
 ## 10. 진단 전용 모드(doctor)
 
