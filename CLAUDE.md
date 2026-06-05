@@ -26,7 +26,11 @@ codepresso-plugin/
 │   │   ├── sprint-context.mjs     # Sprint > Epic > Task hierarchy fetcher
 │   │   ├── status-transitions.mjs # Task/Epic status transitions with Notion API
 │   │   ├── gws.mjs                # Google Chat / gws CLI helpers
-│   │   └── inbox-state.mjs        # Seen-ID dedup, candidate JSONL, schema cache, gating + formatter helpers
+│   │   ├── inbox-state.mjs        # Seen-ID dedup, candidate JSONL, schema cache, gating + formatter helpers
+│   │   ├── aidlc-detect.mjs       # Repo structure/stack/host/ticket detector (pure, tested)
+│   │   ├── aidlc-scan.mjs         # 16-item scorecard detectors + secret scan + score (pure, tested)
+│   │   └── aidlc-template.mjs     # Template substitution + non-destructive file write (pure, tested)
+│   ├── aidlc-cli.mjs              # CLI: detect/scan/score/plan/apply-static (JSON output)
 │   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, daily greeting
 │   ├── daily-chat-greeting.mjs    # Detached: weekday morning Google Chat greeting
 │   ├── daily-chat-summary.mjs     # Evening summary script (manual or scheduled)
@@ -44,7 +48,9 @@ codepresso-plugin/
 │   ├── generate-epic/SKILL.md     # Epic PRD document generation
 │   ├── daily-chat/SKILL.md        # Morning Google Chat greeting (manual trigger)
 │   ├── daily-summary/SKILL.md     # Evening Google Chat summary (manual or 18:00 cron trigger)
-│   └── scan-inbox/SKILL.md        # Inbox triage routine (Gmail + Chat → Notion tasks with due dates)
+│   ├── scan-inbox/SKILL.md        # Inbox triage routine (Gmail + Chat → Notion tasks with due dates)
+│   ├── aidlc-init/SKILL.md        # AIDLC scaffolder full pipeline (detect → scan → interview → preview → apply → re-score)
+│   └── aidlc-doctor/SKILL.md      # AIDLC diagnose-only (score + gap report, no writes)
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing Notion API tools
@@ -113,6 +119,17 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 ### 12. Inbox Task Tracker — Claude-Driven Routine
 
 Tasks arriving via Gmail or Google Chat are surfaced by a markdown skill (`skills/scan-inbox/SKILL.md`) that Claude follows in-conversation. Deterministic state ops (seen-ID dedup, candidate persistence, schema cache, redaction) are isolated in `scripts/lib/inbox-state.mjs` and exposed via `scripts/inbox-cli.mjs` — the skill calls the CLI for any state mutation. Source fetching uses the official `mcp__claude_ai_Gmail` connector for email and `gws` CLI for Chat. Notion writes use the official `mcp__claude_ai_Notion` connector. The morning trigger is a single `additionalContext` line injected by `session-start.mjs` on the first weekday session of the day (gated by `~/.codepresso/inbox-last-run.json`). Reminders for due-today + overdue tasks are appended to the existing `daily-chat-greeting.mjs` Chat message via `formatReminderSections`. The entire feature ships behind `inbox.enabled: false` until the setup wizard flips it.
+
+### AIDLC Scaffolder (`aidlc-init` / `aidlc-doctor`)
+
+Scaffolds the 16-item AI-native repo template into any target path. Non-destructive (creates only missing items). Pipeline: detect → scan → interview → preview → apply → re-score.
+
+- Skills: `skills/aidlc-init/SKILL.md` (full pipeline), `skills/aidlc-doctor/SKILL.md` (diagnose-only).
+- CLI: `scripts/aidlc-cli.mjs` — `detect`/`scan`/`score`/`plan`/`apply-static` (JSON out).
+- Libs (pure, tested): `scripts/lib/aidlc-detect.mjs`, `aidlc-scan.mjs` (16 detectors + secret scan + score), `aidlc-template.mjs` (substitution + non-destructive write).
+- Templates: `templates/aidlc/**` (canonical static files).
+- State: `<target>/.codepresso/state/aidlc-scorecard.json` (last scan).
+- Content model: structural/policy files = canonical templates; AGENTS.md/CLAUDE.md/codesight = repo-aware authored. AGENTS.md is the single authoritative entry point; CLAUDE.md + other tool files are thin pointers.
 
 ---
 

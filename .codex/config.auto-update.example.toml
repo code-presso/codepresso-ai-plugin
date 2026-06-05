@@ -1,0 +1,14 @@
+# Example user-level Codex config for Codepresso.
+# Merge this into ~/.codex/config.toml after installing the plugin.
+
+[plugins."codepresso@personal"]
+enabled = true
+
+# Codex has an explicit marketplace refresh command:
+#   codex plugin marketplace upgrade
+#
+# For the current root-plugin repository layout, install Codepresso through the
+# personal marketplace that points at ~/plugins/codepresso, then schedule:
+#   git -C ~/plugins/codepresso pull --ff-only
+#   npm --prefix ~/plugins/codepresso install
+#   codex plugin add codepresso@personal

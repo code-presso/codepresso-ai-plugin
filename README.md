@@ -17,6 +17,7 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **배포 연동** (선택): ECS, CodePipeline, GitHub Actions, 커스텀 명령어 중 원하는 방식으로 Claude Code에서 배포를 트리거할 수 있습니다.
 - **온콜 관리** (선택): DynamoDB + Google Calendar 기반 온콜 스케줄 조회/교체/생성, 런북 검색까지 Claude에서 한 번에.
 - **🆕 LLM Wiki (v0.2.13)** (선택): 개인 지식 베이스를 LLM이 유지·관리합니다. 소스를 ingest하면 서로 연결된 마크다운 페이지로 쌓이고(compounding), query/lint로 활용·점검합니다. 각자 자기 vault(Obsidian + git)를 가지므로 내용은 공유되지 않습니다.
+- **🆕 AIDLC 스캐폴더**: 임의의 저장소를 "AI 에이전트가 일하기 좋은 구조"(AGENTS.md·ADR·문서정책·CI·코드구조 인덱스 등 16항목)에 맞춰 진단하고, **없는 것만** 비파괴로 깔아줍니다. 진단 → 인터뷰 → 미리보기 → 생성 → 재진단. 외부 연동 없이 동작하며, 모노레포면 하위 프로젝트별로 맞춰 생성합니다.
 - **OMC 호환**: oh-my-claudecode와 충돌 없이 함께 동작합니다.
 - **모노레포 / 서브모듈 지원**: 모노레포 루트에서 작업할 때 서브모듈의 활성 PR을 자동 감지합니다.
 
@@ -76,7 +77,86 @@ vault 위치는 `~/.codepresso/config.json`의 `wiki.vaultPath`로 바뀝니다.
 
 ---
 
+## 🆕 AIDLC 스캐폴더 (`aidlc-init` / `aidlc-doctor`)
+
+임의의 저장소를 팀의 **"AI-native 저장소" 16항목 템플릿**에 맞춰 진단·구성하는 도구. 플러그인을 codepresso 전용을 넘어 **어느 프로젝트에나** 적용할 수 있게 합니다.
+
+```
+/codepresso:aidlc-init <경로>     # 진단 → 인터뷰 → 미리보기 → 생성(없는 것만) → 재진단
+/codepresso:aidlc-doctor <경로>   # 진단만 (점수 + 빠진 항목, 파일 변경 없음)
+```
+
+- **비파괴**: 이미 있는 파일은 절대 덮어쓰지 않고 없는 것만 만듭니다. 여러 번 돌려도 안전(멱등).
+- **AGENTS.md 권위**: 실제 내용은 `AGENTS.md` 한 곳에, `CLAUDE.md`·기타 툴 파일(`.cursor/rules` 등)은 포인터 → Claude·Cursor·Codex 등 어떤 도구든 한 소스를 공유.
+- **로컬 우선**: 핵심 동작에 Notion/Figma 등 외부 연동이 필요 없습니다(연동은 선택).
+- **모노레포 자동 적응**: 하위 프로젝트 구조를 감지해 각 하위에 맞는 `CLAUDE.md`까지 생성.
+- **시크릿 점검 내장**: 평문 토큰을 발견하면 경고하고 새로 만드는 파일에 옮기지 않습니다.
+
+16항목 템플릿·준수도 평가 기준은 [`docs/superpowers/specs/2026-05-31-aidlc-ai-native-plugin-design.md`](docs/superpowers/specs/2026-05-31-aidlc-ai-native-plugin-design.md) 참고.
+
+---
+
 ## 설치
+
+### Codex
+
+Codex에서는 플러그인 source를 개인 marketplace에 등록한 뒤 설치합니다.
+
+```bash
+mkdir -p ~/plugins ~/.agents/plugins
+git clone https://github.com/code-presso/codepresso-ai-plugin.git ~/plugins/codepresso
+cd ~/plugins/codepresso
+npm install
+```
+
+`~/.agents/plugins/marketplace.json`에 아래 entry를 추가합니다. 이미 `plugins` 배열이
+있다면 entry만 추가하세요.
+
+```json
+{
+  "name": "personal",
+  "interface": {
+    "displayName": "Personal"
+  },
+  "plugins": [
+    {
+      "name": "codepresso",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codepresso"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+그 다음 설치합니다.
+
+```bash
+codex plugin add codepresso@personal
+```
+
+자동 업데이트를 켜려면 [docs/plugin-auto-update.md](docs/plugin-auto-update.md)의 Codex 섹션처럼
+로컬 clone을 주기적으로 `git pull --ff-only` 한 뒤 `codex plugin add codepresso@personal`로
+재설치하도록 cron을 설정하세요.
+
+설치 후 새 Codex thread를 열면 skills와 MCP 설정이 로드됩니다. 주요 명령어:
+
+```text
+/codepresso:setup
+/codepresso:status
+/codepresso:notion-sync
+/codepresso:sprint-dashboard
+/codepresso:sprint-retro
+/codepresso:llm-wiki
+/codepresso:cloud-dev
+/codepresso:deploy
+```
 
 ### 옵션 A: 플러그인 디렉터리에 심볼릭 링크
 
@@ -89,6 +169,12 @@ ln -s /path/to/codepresso-plugin ~/.claude/plugins/codepresso
 ```bash
 claude plugin add ./codepresso-plugin
 ```
+
+### Claude marketplace 자동 업데이트
+
+Claude Code에서는 GitHub marketplace에 `autoUpdate: true`를 설정할 수 있습니다.
+예시는 [docs/claude-settings.auto-update.example.json](docs/claude-settings.auto-update.example.json)와
+[docs/plugin-auto-update.md](docs/plugin-auto-update.md)를 참고하세요.
 
 ### 의존성 설치
 

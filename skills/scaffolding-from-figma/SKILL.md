@@ -1,6 +1,6 @@
 ---
 name: scaffolding-from-figma
-description: Use when given a Figma file URL + node-id and asked to generate frontend scaffold code (Vue/React/Svelte) that matches an existing project's design system tokens. Verified pipeline: Figma PAT → spec.md → AI designer-high → ~95% scaffold, publisher refines.
+description: "Use when given a Figma file URL + node-id and asked to generate frontend scaffold code (Vue/React/Svelte) that matches an existing project's design system tokens. Verified pipeline: Figma PAT to spec.md to AI designer-high to approximately 95% scaffold, publisher refines."
 ---
 
 <Purpose>

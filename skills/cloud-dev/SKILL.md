@@ -1,3 +1,8 @@
+---
+name: cloud-dev
+description: Manage Codepresso cloud development EC2 instances from Codex or Claude Code.
+---
+
 # Cloud Dev Environment
 
 Manage your cloud development EC2 instance directly from Claude Code.

@@ -13,7 +13,84 @@ Before installing Codepresso, ensure you have:
 
 ## Installation Methods
 
+### Method 0: Codex Plugin
+
+Codex reads `.codex-plugin/plugin.json`, `skills/`, `commands/`, and `.mcp.json` from this repo.
+
+```bash
+mkdir -p ~/plugins ~/.agents/plugins
+git clone https://github.com/code-presso/codepresso-ai-plugin.git ~/plugins/codepresso
+cd ~/plugins/codepresso
+npm install
+```
+
+Add Codepresso to `~/.agents/plugins/marketplace.json`:
+
+```json
+{
+  "name": "personal",
+  "interface": {
+    "displayName": "Personal"
+  },
+  "plugins": [
+    {
+      "name": "codepresso",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codepresso"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+Then install the plugin:
+
+```bash
+codex plugin add codepresso@personal
+```
+
+For auto-update, schedule the local clone to pull and reinstall:
+
+```bash
+git -C ~/plugins/codepresso pull --ff-only
+npm --prefix ~/plugins/codepresso install
+codex plugin add codepresso@personal
+```
+
+See `docs/plugin-auto-update.md` for a cron example and Claude Code auto-update settings.
+
+Open a new Codex thread after installing so Codex loads the plugin's skills, commands, and MCP
+servers. Slash commands include `/codepresso:setup`, `/codepresso:status`,
+`/codepresso:notion-sync`, `/codepresso:sprint-dashboard`, `/codepresso:sprint-retro`,
+`/codepresso:llm-wiki`, `/codepresso:cloud-dev`, and `/codepresso:deploy`.
+
 Choose one of the three methods below to install Codepresso:
+
+For Claude Code marketplace auto-update, use `docs/claude-settings.auto-update.example.json`
+as the reference:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "codepresso": {
+      "source": {
+        "source": "github",
+        "repo": "code-presso/codepresso-ai-plugin"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "codepresso@codepresso": true
+  }
+}
+```
 
 ### Method 1: Symlink (Recommended for Development)
 
@@ -505,4 +582,3 @@ If you encounter issues:
 3. Run `codepresso:setup` to reconfigure
 4. Check console output in Claude Code for error messages
 5. File an issue with details about your setup and error messages
-

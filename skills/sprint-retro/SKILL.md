@@ -1,3 +1,8 @@
+---
+name: sprint-retro
+description: Generate a sprint retrospective report with velocity metrics and task categorization.
+---
+
 # Sprint Retrospective
 
 Generate a sprint retrospective report with velocity metrics and task categorization.

@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "codepresso": {
+      "source": {
+        "source": "github",
+        "repo": "code-presso/codepresso-ai-plugin"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "codepresso@codepresso": true
+  }
+}
