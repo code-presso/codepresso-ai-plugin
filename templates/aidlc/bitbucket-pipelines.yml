@@ -1,0 +1,8 @@
+# Minimal CI on pull requests. Runs the project's test command.
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: test
+          script:
+            - {{TEST_CMD}}

@@ -3,4 +3,7 @@ node_modules/
 .codepresso/state/
 .worktrees/
 .claude/
+# but DO ship the scaffolder's .claude templates (settings.json, codesight hook)
+!templates/aidlc/.claude/
+!templates/aidlc/.claude/**
 package-lock.json
