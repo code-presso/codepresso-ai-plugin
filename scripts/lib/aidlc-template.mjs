@@ -25,13 +25,25 @@ export const ITEM_PATHS = {
   'ci-pr': '.github/workflows/ci.yml',
   'pre-push': 'scripts/check-before-push.sh',
   'codesight': '.codesight/CODESIGHT.md',
+  'local-dev': 'scripts/local-up.sh',                 // opt-in only (profile.localDev === 'scaffold')
 };
 
-export function planFiles(scanResult, ctx) {
+// Host-specific CI scaffold target for the ci-pr item. The template ships at the
+// same repo-relative path under templates/aidlc/, so applyStatic reads from f.path.
+export const CI_PATHS = {
+  github: '.github/workflows/ci.yml',
+  gitlab: '.gitlab-ci.yml',
+  bitbucket: 'bitbucket-pipelines.yml',
+};
+
+export function planFiles(scanResult, ctx, profile) {
+  const host = (profile && profile.ciHost && profile.ciHost !== 'none') ? profile.ciHost : (ctx && ctx.host);
   const out = [];
   for (const r of scanResult.results) {
     if (r.status !== 'missing') continue;            // non-destructive: only missing
-    const path = ITEM_PATHS[r.key];
+    let path = ITEM_PATHS[r.key];
+    if (r.key === 'ci-pr') path = CI_PATHS[host] || ITEM_PATHS['ci-pr'];   // host-aware CI target
+    if (r.key === 'local-dev' && !(profile && profile.localDev === 'scaffold')) continue;  // opt-in scaffold only
     if (!path) continue;                              // items with no single scaffold file handled in skill
     out.push({ path, kind: r.kind, key: r.key });
   }

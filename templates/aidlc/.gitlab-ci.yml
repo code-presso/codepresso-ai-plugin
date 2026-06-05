@@ -1,0 +1,8 @@
+# Minimal merge-request-triggered CI. Runs the project's test command on MRs.
+stages: [test]
+test:
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - {{TEST_CMD}}

@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 
 const MANIFESTS = ['package.json', 'go.mod', 'pom.xml', 'build.gradle', 'pyproject.toml', 'requirements.txt', 'Cargo.toml'];
 
+const has = (root, rel) => existsSync(join(root, rel));
+
 export function detectSubmodules(rootDir) {
   const f = join(rootDir, '.gitmodules');
   if (!existsSync(f)) return [];
@@ -80,14 +82,82 @@ export function detectTickets(rootDir) {
   return { hasTickets: !!m, sample: m ? m[0] : null };
 }
 
+// Detect agent-tool pointer files. Returns canonical tool ids.
+export function detectTools(rootDir) {
+  const tools = [];
+  try {
+    if (has(rootDir, 'AGENTS.md') || has(rootDir, 'CLAUDE.md')) tools.push('claude');
+    if (has(rootDir, '.cursor') || has(rootDir, '.cursorrules')) tools.push('cursor');
+    if (has(rootDir, '.opencode')) tools.push('opencode');
+    if (has(rootDir, '.clinerules')) tools.push('cline');
+    if (has(rootDir, '.github/copilot-instructions.md')) tools.push('copilot');
+    if (has(rootDir, 'GEMINI.md')) tools.push('gemini');
+    if (has(rootDir, '.amazonq')) tools.push('amazonq');
+  } catch {}
+  return tools;
+}
+
+// Detect CI config files. host is the detected git host (may be null).
+export function detectCI(rootDir, host) {
+  const files = [];
+  try {
+    let wf = [];
+    try { wf = readdirSync(join(rootDir, '.github/workflows')).filter(f => /\.ya?ml$/.test(f)); } catch {}
+    for (const f of wf.sort()) files.push(join('.github/workflows', f));
+    for (const f of ['.gitlab-ci.yml', 'bitbucket-pipelines.yml']) if (has(rootDir, f)) files.push(f);
+  } catch {}
+  return { host: host || null, files };
+}
+
+export function detectHookFramework(rootDir) {
+  try {
+    if (has(rootDir, '.husky')) return 'husky';
+    if (has(rootDir, 'package.json')) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
+        const dd = { ...(pkg.devDependencies || {}), ...(pkg.dependencies || {}) };
+        if (dd.husky) return 'husky';
+      } catch {}
+    }
+    if (has(rootDir, 'lefthook.yml') || has(rootDir, 'lefthook.yaml')) return 'lefthook';
+  } catch {}
+  return 'raw';
+}
+
+export function detectLocalDev(rootDir) {
+  const out = { compose: false, makefileTarget: false, script: false, npmDev: false };
+  try {
+    out.compose = has(rootDir, 'docker-compose.yml') || has(rootDir, 'compose.yaml');
+    if (has(rootDir, 'Makefile')) {
+      try {
+        const mk = readFileSync(join(rootDir, 'Makefile'), 'utf8');
+        out.makefileTarget = /^(up|dev|start):/m.test(mk);
+      } catch {}
+    }
+    out.script = has(rootDir, 'scripts/local-up.sh') || has(rootDir, 'scripts/dev.sh');
+    if (has(rootDir, 'package.json')) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
+        out.npmDev = !!(pkg.scripts && (pkg.scripts.dev || pkg.scripts.start));
+      } catch {}
+    }
+  } catch {}
+  return out;
+}
+
 export function detect(rootDir) {
   const submodules = detectSubmodules(rootDir);
   const structure = detectStructure(rootDir);
+  const host = detectHost(rootDir);
   return {
     structure,
     submodules,
     stacks: detectStacks(rootDir, { structure, submodules }),
-    host: detectHost(rootDir),
+    host,
     tickets: detectTickets(rootDir),
+    tools: detectTools(rootDir),
+    ci: detectCI(rootDir, host),
+    hookFramework: detectHookFramework(rootDir),
+    localDev: detectLocalDev(rootDir),
   };
 }

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { detectSubmodules, detectStructure, detectStacks, detectHost, detectTickets, detect } from '../../scripts/lib/aidlc-detect.mjs';
+import { detectSubmodules, detectStructure, detectStacks, detectHost, detectTickets, detectTools, detectCI, detectHookFramework, detectLocalDev, detect } from '../../scripts/lib/aidlc-detect.mjs';
 
 function tmpRepo() { return mkdtempSync(join(tmpdir(), 'aidlc-')); }
 
@@ -102,6 +102,143 @@ describe('detectTickets', () => {
   });
 });
 
+describe('detectTools', () => {
+  it('includes claude when AGENTS.md exists', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'AGENTS.md'), '# x');
+    assert.deepEqual(detectTools(d), ['claude']);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('includes claude when CLAUDE.md exists', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'CLAUDE.md'), '# x');
+    assert.ok(detectTools(d).includes('claude'));
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('detects cursor via .cursorrules', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, '.cursorrules'), 'x');
+    assert.ok(detectTools(d).includes('cursor'));
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('detects cursor via .cursor dir', () => {
+    const d = tmpRepo();
+    mkdirSync(join(d, '.cursor'));
+    assert.ok(detectTools(d).includes('cursor'));
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('detects opencode, cline, copilot, gemini, amazonq', () => {
+    const d = tmpRepo();
+    mkdirSync(join(d, '.opencode'));
+    writeFileSync(join(d, '.clinerules'), 'x');
+    mkdirSync(join(d, '.github'), { recursive: true });
+    writeFileSync(join(d, '.github/copilot-instructions.md'), 'x');
+    writeFileSync(join(d, 'GEMINI.md'), 'x');
+    mkdirSync(join(d, '.amazonq'));
+    const t = detectTools(d);
+    for (const id of ['opencode', 'cline', 'copilot', 'gemini', 'amazonq']) assert.ok(t.includes(id), id);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('returns [] for bare repo', () => {
+    const d = tmpRepo();
+    assert.deepEqual(detectTools(d), []);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detectCI', () => {
+  it('lists github workflow yml/yaml files', () => {
+    const d = tmpRepo();
+    mkdirSync(join(d, '.github/workflows'), { recursive: true });
+    writeFileSync(join(d, '.github/workflows/ci.yml'), 'on: pull_request');
+    writeFileSync(join(d, '.github/workflows/deploy.yaml'), 'on: push');
+    const ci = detectCI(d, 'github');
+    assert.equal(ci.host, 'github');
+    assert.deepEqual(ci.files.sort(), ['.github/workflows/ci.yml', '.github/workflows/deploy.yaml']);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('lists gitlab and bitbucket configs', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, '.gitlab-ci.yml'), 'x');
+    writeFileSync(join(d, 'bitbucket-pipelines.yml'), 'x');
+    const ci = detectCI(d, 'gitlab');
+    assert.ok(ci.files.includes('.gitlab-ci.yml'));
+    assert.ok(ci.files.includes('bitbucket-pipelines.yml'));
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('empty files when none', () => {
+    const d = tmpRepo();
+    assert.deepEqual(detectCI(d, null).files, []);
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detectHookFramework', () => {
+  it('husky via .husky dir', () => {
+    const d = tmpRepo();
+    mkdirSync(join(d, '.husky'));
+    assert.equal(detectHookFramework(d), 'husky');
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('husky via package.json devDeps', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'package.json'), JSON.stringify({ devDependencies: { husky: '^9' } }));
+    assert.equal(detectHookFramework(d), 'husky');
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('lefthook via lefthook.yml', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'lefthook.yml'), 'pre-push:');
+    assert.equal(detectHookFramework(d), 'lefthook');
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('raw when neither', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'package.json'), '{}');
+    assert.equal(detectHookFramework(d), 'raw');
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('detectLocalDev', () => {
+  it('compose via docker-compose.yml', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'docker-compose.yml'), 'services:');
+    assert.equal(detectLocalDev(d).compose, true);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('compose via compose.yaml', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'compose.yaml'), 'services:');
+    assert.equal(detectLocalDev(d).compose, true);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('makefileTarget when Makefile has up: target', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'Makefile'), 'up:\n\tdocker compose up\n');
+    assert.equal(detectLocalDev(d).makefileTarget, true);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('script via scripts/local-up.sh', () => {
+    const d = tmpRepo();
+    mkdirSync(join(d, 'scripts'));
+    writeFileSync(join(d, 'scripts/local-up.sh'), '#!/bin/sh');
+    assert.equal(detectLocalDev(d).script, true);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('npmDev via package.json scripts.dev', () => {
+    const d = tmpRepo();
+    writeFileSync(join(d, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }));
+    assert.equal(detectLocalDev(d).npmDev, true);
+    rmSync(d, { recursive: true, force: true });
+  });
+  it('all false for bare repo', () => {
+    const d = tmpRepo();
+    assert.deepEqual(detectLocalDev(d), { compose: false, makefileTarget: false, script: false, npmDev: false });
+    rmSync(d, { recursive: true, force: true });
+  });
+});
+
 describe('detect', () => {
   it('returns the composite shape', () => {
     const d = tmpRepo();
@@ -113,6 +250,10 @@ describe('detect', () => {
     assert.deepEqual(r.stacks, [{ path: '.', stack: 'node' }]);
     assert.equal(r.host, null);
     assert.equal(typeof r.tickets.hasTickets, 'boolean');
+    assert.ok(Array.isArray(r.tools));
+    assert.ok(r.ci && Array.isArray(r.ci.files));
+    assert.ok(['husky', 'lefthook', 'raw'].includes(r.hookFramework));
+    assert.ok(r.localDev && typeof r.localDev.compose === 'boolean');
     rmSync(d, { recursive: true, force: true });
   });
 });

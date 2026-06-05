@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const has = (root, rel) => existsSync(join(root, rel));
@@ -7,7 +7,44 @@ const dirHasFileMatching = (root, rel, re) => {
 };
 const result = (status, evidence = [], reason = '') => ({ status, evidence, reason });
 
-// Each detector: (rootDir, ctx) => { status, evidence, reason }
+const readSafe = (root, rel) => { try { return readFileSync(join(root, rel), 'utf8'); } catch { return ''; } };
+const mtimeWithinDays = (root, rel, days) => {
+  try { return (Date.now() - statSync(join(root, rel)).mtimeMs) <= days * 86400000; } catch { return false; }
+};
+
+// True if any .claude settings file declares a SessionStart hook referencing codesight.
+function hasCodesightHook(root) {
+  for (const s of ['.claude/settings.json', '.claude/settings.local.json']) {
+    if (!has(root, s)) continue;
+    let json;
+    try { json = JSON.parse(readSafe(root, s)); } catch { continue; }
+    const ss = json && json.hooks && json.hooks.SessionStart;
+    if (!ss) continue;
+    if (JSON.stringify(ss).toLowerCase().includes('codesight')) return true;
+  }
+  return false;
+}
+
+// True if a lefthook config declares a pre-push section.
+function lefthookHasPrePush(root) {
+  for (const f of ['lefthook.yml', 'lefthook.yaml']) {
+    const t = readSafe(root, f);
+    if (t && /pre-push/.test(t)) return true;
+  }
+  return false;
+}
+
+// Pointer file(s) that satisfy a given agent-tool id (besides 'claude' → AGENTS.md/CLAUDE.md).
+const TOOL_POINTERS = {
+  cursor: ['.cursor', '.cursorrules'],
+  opencode: ['.opencode'],
+  cline: ['.clinerules'],
+  copilot: ['.github/copilot-instructions.md'],
+  gemini: ['GEMINI.md'],
+  amazonq: ['.amazonq'],
+};
+
+// Each detector: (rootDir, ctx, profile) => { status, evidence, reason }
 export const ITEMS = [
   { id: 1, key: 'agents-md', name: 'AGENTS.md at root', kind: 'authored',
     detect: (r) => has(r, 'AGENTS.md') ? result('present', ['AGENTS.md']) : result('missing', [], 'no AGENTS.md') },
@@ -40,7 +77,14 @@ export const ITEMS = [
     detect: (r) => has(r, 'docs/oncall-runbook.md') || has(r, '.claude/commands')
       ? result('present', ['docs/oncall-runbook.md|.claude/commands']) : result('missing') },
   { id: 8, key: 'codesight', name: 'Codesight / context index', kind: 'authored',
-    detect: (r) => has(r, '.codesight') ? result('present', ['.codesight/']) : result('missing') },
+    detect: (r) => {
+      if (!has(r, '.codesight')) return result('missing', [], 'no .codesight/');
+      const hasIndex = has(r, '.codesight/CODESIGHT.md');
+      const fresh = hasIndex && mtimeWithinDays(r, '.codesight/CODESIGHT.md', 14);
+      const hook = hasCodesightHook(r);
+      if (hook || fresh) return result('present', ['.codesight/'], hook ? 'regen hook wired' : 'fresh index');
+      return result('partial', ['.codesight/'], hasIndex ? 'stale and no regen hook' : 'CODESIGHT.md missing and no regen hook');
+    } },
   { id: 9, key: 'hooks', name: 'Session/automation hooks', kind: 'static',
     detect: (r) => {
       if (has(r, 'hooks/hooks.json')) return result('present', ['hooks/hooks.json']);
@@ -57,29 +101,46 @@ export const ITEMS = [
       return result('missing');
     } },
   { id: 11, key: 'ci-pr', name: 'CI gate on every PR', kind: 'static',
-    detect: (r) => {
+    detect: (r, ctx, profile) => {
+      const host = (profile && profile.ciHost && profile.ciHost !== 'none') ? profile.ciHost : (ctx && ctx.host);
+      if (!host || host === 'none') return result('na', [], 'no git host detected');
       const dir = '.github/workflows';
-      let files = [];
-      try { files = readdirSync(join(r, dir)).filter(f => /\.ya?ml$/.test(f)); } catch { return result('missing'); }
-      const prFile = files.find(f => {
-        try { return readFileSync(join(r, dir, f), 'utf8').includes('pull_request'); } catch { return false; }
-      });
-      if (prFile) return result('present', [join(dir, prFile)]);
-      if (files.length) return result('partial', [dir], 'workflows exist but none PR-triggered');
-      return result('missing');
+      let ghFiles = [];
+      try { ghFiles = readdirSync(join(r, dir)).filter(f => /\.ya?ml$/.test(f)); } catch {}
+      const hasGhPr = ghFiles.some(f => readSafe(r, join(dir, f)).includes('pull_request'));
+      const glText = readSafe(r, '.gitlab-ci.yml');
+      const bbText = readSafe(r, 'bitbucket-pipelines.yml');
+      const hasGlPr = /merge_request/i.test(glText);
+      const hasBbPr = /pull-requests/i.test(bbText);
+      const anyWorkflow = ghFiles.length > 0 || has(r, '.gitlab-ci.yml') || has(r, 'bitbucket-pipelines.yml');
+      if (host === 'github' && hasGhPr) return result('present', [dir]);
+      if (host === 'gitlab' && hasGlPr) return result('present', ['.gitlab-ci.yml']);
+      if (host === 'bitbucket' && hasBbPr) return result('present', ['bitbucket-pipelines.yml']);
+      if (anyWorkflow) return result('partial', [], 'workflows exist but host mismatch or no PR trigger');
+      return result('missing', [], 'no CI config');
     } },
   { id: 12, key: 'traceability', name: 'Intent→PR→deploy traceability', kind: 'static',
-    detect: (r, ctx) => ctx.tickets && ctx.tickets.hasTickets
-      ? result('partial', [], 'tickets used; confirm PR-title convention in interview')
-      : result('partial', [], 'needs-confirm: no ticket convention detected') },
+    detect: (r, ctx, profile) => {
+      const hasPrdSchema = has(r, 'docs/prd/_schema.json') || has(r, 'docs/prd/_schema.md');
+      const confirmedTickets = ctx.tickets && ctx.tickets.hasTickets
+        && profile && profile.ticketPrefix && profile.ticketPrefix !== 'none';
+      if (hasPrdSchema) return result('present', ['docs/prd/_schema.json'], 'PRD schema anchors intent');
+      if (confirmedTickets) return result('present', [], `ticket convention ${profile.ticketPrefix}- confirmed`);
+      if (ctx.tickets && ctx.tickets.hasTickets)
+        return result('partial', [], 'tickets used; confirm PR-title convention in interview');
+      return result('partial', [], 'needs-confirm: no ticket convention detected');
+    } },
   { id: 13, key: 'doc-policy', name: 'Documentation policy', kind: 'static',
     detect: (r) => has(r, 'docs/documentation-policy.md') ? result('present', ['docs/documentation-policy.md']) : result('missing') },
   { id: 14, key: 'feature-flags', name: 'Graceful degradation / feature flags', kind: 'static',
     detect: (r) => result('partial', [], 'needs-confirm: integration gating reviewed in interview') },
   { id: 15, key: 'pre-push', name: 'Pre-push / pre-merge validation', kind: 'static',
     detect: (r) => {
-      for (const p of ['scripts/check-before-push.sh', '.husky/pre-push', '.git/hooks/pre-push'])
-        if (has(r, p)) return result('present', [p]);
+      for (const p of ['.git/hooks/pre-push', '.husky/pre-push'])
+        if (has(r, p)) return result('present', [p], 'hook wired');
+      if (lefthookHasPrePush(r)) return result('present', ['lefthook'], 'lefthook pre-push');
+      if (has(r, 'scripts/check-before-push.sh'))
+        return result('partial', ['scripts/check-before-push.sh'], 'check script exists but not wired to a git hook');
       return result('missing');
     } },
   { id: 16, key: 'unit-tests', name: 'Unit tests for deterministic logic', kind: 'static',
@@ -91,10 +152,48 @@ export const ITEMS = [
       } catch {}
       return has(r, 'tests') ? result('partial', ['tests/'], 'tests dir but no test script') : result('missing');
     } },
+  { id: 17, key: 'local-dev', name: 'Local dev one-command bring-up', kind: 'static',
+    detect: (r, ctx) => {
+      const ld = (ctx && ctx.localDev) || {};
+      if (ld.makefileTarget || ld.script || ld.npmDev) {
+        const ev = [ld.makefileTarget && 'Makefile up/dev', ld.script && 'scripts/local-up.sh', ld.npmDev && 'npm dev/start'].filter(Boolean);
+        return result('present', ev);
+      }
+      if (ld.compose) return result('partial', ['docker-compose'], 'compose present but no documented one-command bring-up');
+      return result('missing', [], 'no one-command local bring-up');
+    } },
+  { id: 18, key: 'multitool-coherence', name: 'Multi-tool pointer coherence', kind: 'authored',
+    detect: (r, ctx, profile) => {
+      const inUse = (profile && Array.isArray(profile.tools)) ? profile.tools : ((ctx && ctx.tools) || []);
+      if (inUse.length === 0) return result('na', [], 'no tools recorded');
+      if (inUse.length === 1) return result('na', [], 'single tool — AGENTS.md/CLAUDE.md suffices');
+      if (!has(r, 'AGENTS.md')) return result('partial', [], 'no AGENTS.md anchor for tool pointers');
+      const missingPtr = [];
+      const unknown = [];
+      for (const t of inUse) {
+        if (t === 'claude') continue;
+        const candidates = TOOL_POINTERS[t];
+        if (!candidates) { unknown.push(t); continue; }
+        if (!candidates.some(c => has(r, c))) missingPtr.push(t);
+      }
+      if (unknown.length) return result('partial', [], `unknown tool id(s): ${unknown.join(', ')}`);
+      if (missingPtr.length === 0) return result('present', ['AGENTS.md + tool pointers']);
+      return result('partial', [], `missing pointer(s): ${missingPtr.join(', ')}`);
+    } },
 ];
 
-export function scanItem(rootDir, ctx, item) {
-  const { status, evidence, reason } = item.detect(rootDir, ctx);
+// Profile-driven na-scoping: items for tools/hosts the team does not use are excluded.
+function naItem(item, reason) {
+  return { id: item.id, key: item.key, name: item.name, kind: item.kind, status: 'na', evidence: [], reason };
+}
+
+export function scanItem(rootDir, ctx, item, profile) {
+  if (profile) {
+    if (item.key === 'ci-pr' && profile.ciHost === 'none') return naItem(item, 'profile: no CI host in use');
+    if (item.key === 'pre-push' && profile.prePush === 'skip') return naItem(item, 'profile: pre-push skipped');
+    if (item.key === 'codesight' && profile.contextMode === 'off') return naItem(item, 'profile: context index off');
+  }
+  const { status, evidence, reason } = item.detect(rootDir, ctx, profile);
   return { id: item.id, key: item.key, name: item.name, kind: item.kind, status, evidence, reason };
 }
 
@@ -128,8 +227,8 @@ export function scanSecrets(rootDir) {
   return found;
 }
 
-export function scan(rootDir, ctx) {
-  const results = ITEMS.slice().sort((a, b) => a.id - b.id).map(item => scanItem(rootDir, ctx, item));
+export function scan(rootDir, ctx, profile) {
+  const results = ITEMS.slice().sort((a, b) => a.id - b.id).map(item => scanItem(rootDir, ctx, item, profile));
   const secrets = scanSecrets(rootDir);
   return { results, secrets, score: computeScore(results) };
 }

@@ -1,0 +1,13 @@
+{
+  "_comment": "Merge this SessionStart hook into the target repo's .claude/settings.json when contextMode=regen-node. It regenerates .codesight/CODESIGHT.md every session with zero external dependencies.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/codesight-scan.mjs\" \"${CLAUDE_PROJECT_DIR}\"" }
+        ]
+      }
+    ]
+  }
+}
