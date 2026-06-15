@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { mkdtempSync, readFileSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expandHome, isSessionValid, readCache, writeCache } from '../../scripts/lib/aws-session.mjs';
+import { expandHome, isSessionValid, readCache, writeCache, parseStsSessionToken, parseMfaSerial, toCredentialProcessOutput, redact } from '../../scripts/lib/aws-session.mjs';
 
 test('expandHome expands leading ~', () => {
   assert.ok(expandHome('~/x').endsWith('/x'));
@@ -29,4 +29,34 @@ test('writeCache writes atomically with 0600 and readCache roundtrips', () => {
   assert.strictEqual(statSync(file).mode & 0o777, 0o600);
   assert.strictEqual(readCache(join(dir, 'missing.json')), null);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('parseStsSessionToken extracts credentials from STS JSON', () => {
+  const sts = { Credentials: { AccessKeyId: 'ASIA', SecretAccessKey: 'sk', SessionToken: 'tok', Expiration: '2030-01-01T00:00:00Z' } };
+  const c = parseStsSessionToken(sts);
+  assert.strictEqual(c.AccessKeyId, 'ASIA');
+  assert.throws(() => parseStsSessionToken({ Credentials: {} }), /Invalid/);
+  assert.throws(() => parseStsSessionToken('{"bad":1}'), /Invalid/);
+});
+
+test('parseMfaSerial picks virtual TOTP (:mfa/), ignores passkey (:u2f/)', () => {
+  const j = { MFADevices: [
+    { SerialNumber: 'arn:aws:iam::1:u2f/user/x/passkey-AAA' },
+    { SerialNumber: 'arn:aws:iam::1:mfa/maphone' },
+  ] };
+  assert.strictEqual(parseMfaSerial(j), 'arn:aws:iam::1:mfa/maphone');
+  assert.strictEqual(parseMfaSerial({ MFADevices: [{ SerialNumber: 'arn:aws:iam::1:u2f/x' }] }), null);
+  assert.strictEqual(parseMfaSerial({ MFADevices: [] }), null);
+});
+
+test('toCredentialProcessOutput emits AWS Version:1 shape', () => {
+  const cache = { AccessKeyId: 'A', SecretAccessKey: 'S', SessionToken: 'T', Expiration: 'E' };
+  assert.deepStrictEqual(toCredentialProcessOutput(cache), { Version: 1, AccessKeyId: 'A', SecretAccessKey: 'S', SessionToken: 'T', Expiration: 'E' });
+});
+
+test('redact masks secret-bearing keys', () => {
+  const r = redact({ AccessKeyId: 'ASIAabcd1234', SecretAccessKey: 'supersecretvalue', Expiration: 'E' });
+  assert.strictEqual(r.Expiration, 'E');
+  assert.ok(!r.SecretAccessKey.includes('supersecretvalue'));
+  assert.ok(r.SecretAccessKey.includes('REDACTED'));
 });
