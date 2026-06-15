@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { mkdtempSync, readFileSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expandHome, isSessionValid, readCache, writeCache, parseStsSessionToken, parseMfaSerial, toCredentialProcessOutput, redact } from '../../scripts/lib/aws-session.mjs';
+import { expandHome, isSessionValid, readCache, writeCache, parseStsSessionToken, parseMfaSerial, toCredentialProcessOutput, redact, shouldPromptMfa, isMfaCredentialError } from '../../scripts/lib/aws-session.mjs';
 
 test('expandHome expands leading ~', () => {
   assert.ok(expandHome('~/x').endsWith('/x'));
@@ -59,4 +59,18 @@ test('redact masks secret-bearing keys', () => {
   assert.strictEqual(r.Expiration, 'E');
   assert.ok(!r.SecretAccessKey.includes('supersecretvalue'));
   assert.ok(r.SecretAccessKey.includes('REDACTED'));
+});
+
+test('shouldPromptMfa only fires on signature AND invalid cache', () => {
+  const deny = 'User: ... is not authorized ... with an explicit deny in an identity-based policy';
+  assert.strictEqual(shouldPromptMfa(deny, { cacheValid: false }), true);
+  assert.strictEqual(shouldPromptMfa(deny, { cacheValid: true }), false);   // real authz error, not MFA
+  assert.strictEqual(shouldPromptMfa('ExpiredToken: token expired', { cacheValid: false }), true);
+  assert.strictEqual(shouldPromptMfa('some unrelated output', { cacheValid: false }), false);
+});
+
+test('isMfaCredentialError matches credential/expiry/deny errors', () => {
+  assert.strictEqual(isMfaCredentialError({ name: 'CredentialsProviderError', message: '' }), true);
+  assert.strictEqual(isMfaCredentialError({ name: 'ExpiredTokenException', message: 'x' }), true);
+  assert.strictEqual(isMfaCredentialError({ name: 'ValidationError', message: 'bad param' }), false);
 });
