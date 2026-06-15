@@ -10,7 +10,8 @@ function main() {
     process.stderr.write('codepresso: no valid AWS MFA session — run /codepresso:aws-login\n');
     process.exit(1);
   }
-  process.stdout.write(JSON.stringify(toCredentialProcessOutput(cache)));
+  // isSessionValid guarantees AccessKeyId/SecretAccessKey/SessionToken/Expiration are present
+  process.stdout.write(JSON.stringify(toCredentialProcessOutput(cache)) + '\n');
 }
 
 main();

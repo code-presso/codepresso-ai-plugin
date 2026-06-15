@@ -9,6 +9,14 @@ test('renameSection renames header, refuses if target exists', () => {
   assert.strictEqual(renameSection(both, 'default', 'codepresso-source'), both); // no clobber
 });
 
+test('upsertSectionKV inserts a new key into an existing section without duplicating it', () => {
+  const ini = '[default]\nregion = ap-northeast-2\n';
+  const out = upsertSectionKV(ini, 'default', { credential_process: 'node /x.mjs' });
+  assert.ok(out.includes('credential_process = node /x.mjs'));
+  assert.ok(out.includes('region = ap-northeast-2'));
+  assert.strictEqual((out.match(/\[default\]/g) || []).length, 1);
+});
+
 test('upsertSectionKV creates section and updates keys in place', () => {
   let out = upsertSectionKV('', 'default', { credential_process: 'node /p/x.mjs', region: 'ap-northeast-2' });
   assert.ok(out.includes('[default]'));
