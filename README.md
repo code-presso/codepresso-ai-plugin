@@ -13,6 +13,7 @@ Claude Code용 팀 워크플로우 플러그인 — Notion 작업 동기화, 스
 - **스프린트 워크플로우**: 세션 시작 시 Sprint → Epic → Task 계층을 가져오고, 에픽의 모든 작업이 끝나면 에픽도 자동 완료 처리합니다.
 - **🆕 받은편지함 작업 트래커**: Gmail과 Google Chat에 묻혀 잊혀지는 작업 요청을 매일 아침 자동으로 스캔합니다. AI가 후보를 골라주면 한 번의 클릭으로 마감일 있는 Notion 작업으로 변환되며, 아침 인사 메시지에는 마감 임박/지난 작업이 함께 표시됩니다.
 - **🆕 Figma → 프론트엔드 scaffold (v0.2.9)**: Figma URL + node-id + PAT만 주면 디자인 시스템 토큰이 매핑된 Vue/React scaffold를 자동 생성합니다. Codepresso 검증 결과 픽셀 일치율 87~97%, 하드코딩 hex 0건, 토큰 준수율 6× 향상, 퍼블리셔 시간 75~85% 절감.
+- **🆕 보안 진단 (v0.2.12)**: `/codepresso:security-audit` — OWASP Top 10:2025와 2025–2026 최신 웹 보안 사고를 근거로 코드·인프라를 스캔하고(기술 스택 무관), 선택 시 개발자 머신의 로컬 자격증명까지 점검한 뒤, 인터뷰를 거쳐 점수가 매겨진 리메디에이션 리포트를 생성합니다. 시크릿 값은 절대 출력하지 않습니다.
 - **평일 Google Chat 북엔드** (월–금): 첫 세션 시작 시 진행 중 작업 + 내 오픈 PR + 리뷰 요청 PR을 아침 인사로 전송, 18시에는 오늘의 커밋/머지된 PR/진행 중 작업을 Claude Haiku로 요약해 마감 메시지로 전송합니다.
 - **배포 연동** (선택): ECS, CodePipeline, GitHub Actions, 커스텀 명령어 중 원하는 방식으로 Claude Code에서 배포를 트리거할 수 있습니다.
 - **온콜 관리** (선택): DynamoDB + Google Calendar 기반 온콜 스케줄 조회/교체/생성, 런북 검색까지 Claude에서 한 번에.
@@ -425,6 +426,27 @@ https://github.com/code-presso/global-main-frontend/tree/experiment/design-syste
 
 ---
 
+## 🔒 보안 진단 (security-audit)
+
+`/codepresso:security-audit` — **기술 스택과 무관하게** 웹 서비스의 보안 상태를 점검합니다. 체크리스트는 **OWASP Top 10:2025** 와 **2025–2026 실제 웹 보안 사고**(2025년 9월 npm "Qix"/Shai-Hulud 공급망 공격, 클라우드 오구성 유출, OAuth·자격증명 남용, LLM 프롬프트 인젝션/SSRF)를 근거로 구성됩니다.
+
+흐름은 **스캔 → 인터뷰 → 리포트**:
+
+1. **레포 스캔** (`scan`) — 코드·인프라 설정에서 *증거*를 수집. 네트워크·툴체인 불필요(파일 내용만 읽음): 하드코딩 시크릿, 미고정 의존성/락파일 누락, SQLi·XSS·커맨드 인젝션 싱크, CORS·디버그·TLS 오구성, 안전하지 않은 역직렬화, mutable 태그로 고정된 GitHub Action 등.
+2. **개발자 머신 스캔** (`scan-local`, 선택·동의 후) — 로컬 자격증명 위생 점검: 장기 AWS 키, 암호 없는 SSH 키, 평문 npm/docker/git 토큰, 셸 히스토리/환경변수의 시크릿. **시크릿 값은 절대 출력하지 않음** (존재·위험 유형·변수 *이름*만).
+3. **인터뷰** — 스캔 증거로 좁힌 질문을 `AskUserQuestion`으로 진행. 정적 스캔이 못 보는 접근제어 로직·MFA/OAuth 범위·IAM 최소권한·로깅/알림 같은 운영 통제를 사람이 확인.
+4. **리포트** (`report`) — 0–100 점수 + 등급, 스코어카드, *왜 중요한지*(실제 사고)와 조치 체크리스트가 담긴 우선순위 리메디에이션을 마크다운으로 생성.
+
+플러그인 내부:
+- `skills/security-audit/SKILL.md` — 사용 절차 + 트리거 조건
+- `scripts/security-audit-cli.mjs` — 결정론적 하네스 (`scan` / `scan-local` / `checklist` / `report`)
+- `scripts/lib/security-checklist.mjs` — 12항목 체크리스트 데이터 (OWASP 2025 + 사고 근거 + 가중치)
+- `tests/lib/security-audit.test.mjs` — 단위 테스트 (시크릿 미유출 검증 포함)
+
+> 스캐너는 *후보*를 찾을 뿐 단정하지 않습니다 — 앱을 실행하지 않고 툴체인도 필요 없으므로 Node만 있는 환경에서 Python·Go 레포도 진단할 수 있고, 발견 항목은 인터뷰에서 확정합니다.
+
+---
+
 ## 자세한 동작 (개발자용)
 
 ### 세션 시작
@@ -541,6 +563,7 @@ CODEPRESSO_DRY_RUN=1 node scripts/daily-chat-summary.mjs
 | `codepresso:oncall-runbook` | "온콜 런북", "sev1 어떻게 처리?" | `docs/oncall-runbook.md` 섹션 조회 |
 | 🆕 `codepresso:scaffolding-from-figma` | "이 figma 노드로 Vue scaffold 만들어줘", Figma URL + PAT 제공 | Figma PAT → REST API → 토큰 매핑 spec.md → designer-high agent → ~90% scaffold (퍼블리셔 1-2시간 마무리) |
 | 🆕 `codepresso:llm-wiki` | "/codepresso:llm-wiki ...", "이거 내 위키에 넣어줘", "내 위키에 X 있어?", "위키 lint" | 개인 LLM Wiki(Obsidian + git) init/ingest/query/lint — 대화를 넘어 쌓이는 지식 베이스 |
+| 🆕 `codepresso:security-audit` | "보안 점검해줘", "security audit", "취약점 진단", "/codepresso:security-audit" | OWASP Top 10:2025 + 최신 사고 기반 스캔(코드·인프라) → 개발자 머신 자격증명 점검(선택) → 인터뷰 → 점수 리포트. 기술 스택 무관 |
 
 ---
 
@@ -622,7 +645,9 @@ codepresso-plugin/
 │   ├── handle-merge-transition.mjs # 분리: PR 머지 → 작업 완료 → 에픽 cascade
 │   ├── daily-chat-greeting.mjs    # 아침 Google Chat 인사 (분리) — 🆕 마감 지난/오늘 마감 섹션 포함
 │   ├── daily-chat-summary.mjs     # 저녁 Google Chat 요약 (수동 또는 크론)
-│   └── inbox-cli.mjs              # 🆕 scan-inbox 스킬이 호출하는 CLI 디스패처
+│   ├── inbox-cli.mjs              # 🆕 scan-inbox 스킬이 호출하는 CLI 디스패처
+│   ├── security-audit-cli.mjs     # 🆕 보안 진단 하네스 (scan / scan-local / checklist / report)
+│   └── lib/security-checklist.mjs # 🆕 OWASP 2025 + 최신 사고 기반 체크리스트 데이터 (12항목)
 ├── skills/
 │   ├── setup/SKILL.md             # 설정 마법사 (받은편지함 스캔 활성화 단계 포함)
 │   ├── status/SKILL.md            # 플러그인 진단
@@ -633,6 +658,7 @@ codepresso-plugin/
 │   ├── daily-chat/SKILL.md        # 아침 Google Chat 인사 (수동)
 │   ├── daily-summary/SKILL.md     # 저녁 Google Chat 요약 (수동 또는 월–금 18시 크론)
 │   ├── scan-inbox/SKILL.md        # 🆕 받은편지함 스캔 절차
+│   ├── security-audit/SKILL.md    # 🆕 OWASP 2025 보안 진단 절차 (scan → 인터뷰 → 리포트)
 │   ├── deploy/SKILL.md            # 배포 트리거 (선택)
 │   └── oncall*/SKILL.md           # 온콜 관리 스킬들
 ├── tests/lib/                     # 단위 테스트 (node:test + node:assert)
