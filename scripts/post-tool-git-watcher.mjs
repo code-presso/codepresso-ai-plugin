@@ -7,7 +7,8 @@
  */
 
 import { readStdin } from './lib/stdin.mjs';
-import { getStateDir } from './lib/config.mjs';
+import { getStateDir, loadConfig } from './lib/config.mjs';
+import { getSessionFile, readCache, isSessionValid, shouldPromptMfa } from './lib/aws-session.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -108,6 +109,22 @@ async function main() {
     const toolOutput = input?.hookInput?.toolOutput || input?.toolOutput || '';
     const command = toolInput?.command || '';
     const output = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
+
+    // AWS MFA reactive trigger — runs regardless of PR/session state.
+    const cfg = loadConfig();
+    if (cfg.aws?.enabled && /(^|\s)aws\s/.test(command)) {
+      const cacheValid = isSessionValid(readCache(getSessionFile(cfg)));
+      if (shouldPromptMfa(output, { cacheValid })) {
+        process.stdout.write(JSON.stringify({
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'PostToolUse',
+            additionalContext: '[Codepresso] An `aws` command was blocked because the MFA session is missing/expired. Run /codepresso:aws-login to refresh, then retry the command.',
+          },
+        }));
+        return;
+      }
+    }
 
     const session = readSession();
     if (!session) {

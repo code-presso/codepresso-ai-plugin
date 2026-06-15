@@ -173,6 +173,15 @@ Action: Run wizard focused on per-project config
 </Good>
 </Examples>
 
+## AWS MFA session (optional)
+
+If the team enforces MFA on AWS access, offer to configure the credential_process bridge:
+
+1. Confirm a virtual TOTP MFA device is registered for the user's IAM user (passkey alone is not enough for CLI).
+2. Run: `node "${CLAUDE_PLUGIN_ROOT}/scripts/aws-cli.mjs" setup`
+   - This backs up `~/.aws/credentials` and `~/.aws/config` (`.codepresso.bak`), relocates the `[default]` long-term key to `[codepresso-source]`, writes a `[default]` `credential_process` profile, detects the MFA serial, and flips `aws.enabled`.
+3. Report the result. If `mfaSerial` is null, tell the user to register a TOTP and re-run.
+
 <Final_Checklist>
 - [ ] `gh` CLI authenticated
 - [ ] Global config written to `~/.codepresso/config.json`
