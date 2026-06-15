@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { renameSection, upsertSectionKV } from '../../scripts/lib/aws-ini.mjs';
+import { renameSection, upsertSectionKV, hasSectionKey } from '../../scripts/lib/aws-ini.mjs';
 
 test('renameSection renames header, refuses if target exists', () => {
   const ini = '[default]\naws_access_key_id = AKIA\n';
@@ -25,4 +25,11 @@ test('upsertSectionKV creates section and updates keys in place', () => {
   assert.ok(out.includes('region = us-east-1'));
   assert.ok(!out.includes('region = ap-northeast-2'));
   assert.strictEqual((out.match(/\[default\]/g) || []).length, 1);  // no duplicate section
+});
+
+test('hasSectionKey detects a key only within its own section', () => {
+  const ini = '[default]\naws_access_key_id = AKIA\n[other]\nregion = x\n';
+  assert.strictEqual(hasSectionKey(ini, 'default', 'aws_access_key_id'), true);
+  assert.strictEqual(hasSectionKey(ini, 'other', 'aws_access_key_id'), false);
+  assert.strictEqual(hasSectionKey(ini, 'missing', 'aws_access_key_id'), false);
 });

@@ -5,6 +5,17 @@ export function renameSection(text, from, to) {
   return lines.map((l) => (l.trim() === `[${from}]` ? `[${to}]` : l)).join('\n');
 }
 
+export function hasSectionKey(text, section, key) {
+  const lines = (text || '').split('\n');
+  const start = lines.findIndex((l) => l.trim() === `[${section}]`);
+  if (start === -1) return false;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\[/.test(lines[i])) break;
+    if (new RegExp(`^\\s*${key}\\s*=`).test(lines[i])) return true;
+  }
+  return false;
+}
+
 export function upsertSectionKV(text, section, kv) {
   const lines = (text || '').split('\n');
   const start = lines.findIndex((l) => l.trim() === `[${section}]`);

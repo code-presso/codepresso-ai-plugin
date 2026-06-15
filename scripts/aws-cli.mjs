@@ -7,7 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './lib/config.mjs';
 import { getSessionFile, readCache, isSessionValid, parseMfaSerial, parseStsSessionToken, writeCache, redact } from './lib/aws-session.mjs';
-import { renameSection, upsertSectionKV } from './lib/aws-ini.mjs';
+import { renameSection, upsertSectionKV, hasSectionKey } from './lib/aws-ini.mjs';
 
 function awsJson(args) {
   return JSON.parse(execFileSync('aws', [...args, '--output', 'json'], { encoding: 'utf-8' }));
@@ -85,6 +85,10 @@ function cmdSetup() {
     writeFileSync(credPath, moved, { mode: 0o600 });
   }
 
+  // After step 1: detect a lingering [default] static key (would bypass MFA)
+  const defaultKeyRemains = existsSync(credPath)
+    && hasSectionKey(readFileSync(credPath, 'utf-8'), 'default', 'aws_access_key_id');
+
   // 2. Back up + write [default] credential_process into ~/.aws/config
   mkdirSync(awsDir, { recursive: true });
   const confText = existsSync(confPath) ? (copyFileSync(confPath, `${confPath}.codepresso.bak`), readFileSync(confPath, 'utf-8')) : '';
@@ -102,7 +106,7 @@ function cmdSetup() {
   existing.aws = { ...(existing.aws || {}), enabled: !!mfaSerial, sourceProfile, mfaSerial, sessionTtlSeconds: aws.sessionTtlSeconds || 3600, sessionFile: aws.sessionFile || '~/.codepresso/aws-session.json', region };
   writeFileSync(globalCfgPath, JSON.stringify(existing, null, 2));
 
-  console.log(JSON.stringify({ ok: true, mfaSerial, enabled: !!mfaSerial, credProcess: credProcessScript, backups: [`${credPath}.codepresso.bak`, `${confPath}.codepresso.bak`], note: mfaSerial ? null : 'No virtual TOTP found — register one, then run: aws-cli detect-mfa && aws-cli setup' }));
+  console.log(JSON.stringify({ ok: true, mfaSerial, enabled: !!mfaSerial, credProcess: credProcessScript, backups: [`${credPath}.codepresso.bak`, `${confPath}.codepresso.bak`], note: mfaSerial ? null : 'No virtual TOTP found — register one, then run: aws-cli detect-mfa && aws-cli setup', warning: defaultKeyRemains ? 'A [default] static key remains in ~/.aws/credentials and takes precedence over the credential_process profile — MFA is NOT enforced for the plugin until it is moved/removed (e.g. [codepresso-source] may already exist).' : null }));
 }
 
 const cmd = process.argv[2];
