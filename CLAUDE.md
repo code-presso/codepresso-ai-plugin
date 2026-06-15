@@ -29,8 +29,12 @@ codepresso-plugin/
 │   │   ├── inbox-state.mjs        # Seen-ID dedup, candidate JSONL, schema cache, gating + formatter helpers
 │   │   ├── aidlc-detect.mjs       # Repo structure/stack/host/ticket detector (pure, tested)
 │   │   ├── aidlc-scan.mjs         # 16-item scorecard detectors + secret scan + score (pure, tested)
-│   │   └── aidlc-template.mjs     # Template substitution + non-destructive file write (pure, tested)
+│   │   ├── aidlc-template.mjs     # Template substitution + non-destructive file write (pure, tested)
+│   │   ├── aws-session.mjs        # AWS MFA session: paths/expiry/cache/parse/redact/detection (pure, tested)
+│   │   └── aws-ini.mjs            # Safe ~/.aws INI section rename/upsert (pure, tested)
 │   ├── aidlc-cli.mjs              # CLI: detect/scan/score/plan/apply-static (JSON output)
+│   ├── aws-cli.mjs                # CLI: status/detect-mfa/refresh/setup (JSON output)
+│   ├── aws-cred-process.mjs       # credential_process entry: emits cached MFA session or exits 1
 │   ├── session-start.mjs          # SessionStart hook: detect branch/PR, fetch Notion tasks, daily greeting
 │   ├── daily-chat-greeting.mjs    # Detached: weekday morning Google Chat greeting
 │   ├── daily-chat-summary.mjs     # Evening summary script (manual or scheduled)
@@ -50,7 +54,8 @@ codepresso-plugin/
 │   ├── daily-summary/SKILL.md     # Evening Google Chat summary (manual or 18:00 cron trigger)
 │   ├── scan-inbox/SKILL.md        # Inbox triage routine (Gmail + Chat → Notion tasks with due dates)
 │   ├── aidlc-init/SKILL.md        # AIDLC scaffolder full pipeline (detect → scan → interview → preview → apply → re-score)
-│   └── aidlc-doctor/SKILL.md      # AIDLC diagnose-only (score + gap report, no writes)
+│   ├── aidlc-doctor/SKILL.md      # AIDLC diagnose-only (score + gap report, no writes)
+│   └── aws-login/SKILL.md         # Refresh short-lived AWS MFA session (credential_process bridge)
 ├── tests/lib/                     # Unit tests (node:test + node:assert)
 ├── mcp/
 │   └── notion-server.mjs          # MCP server exposing Notion API tools
@@ -119,6 +124,20 @@ The plugin uses Notion's forward relations exclusively (Sprint→Epic via `개�
 ### 12. Inbox Task Tracker — Claude-Driven Routine
 
 Tasks arriving via Gmail or Google Chat are surfaced by a markdown skill (`skills/scan-inbox/SKILL.md`) that Claude follows in-conversation. Deterministic state ops (seen-ID dedup, candidate persistence, schema cache, redaction) are isolated in `scripts/lib/inbox-state.mjs` and exposed via `scripts/inbox-cli.mjs` — the skill calls the CLI for any state mutation. Source fetching uses the official `mcp__claude_ai_Gmail` connector for email and `gws` CLI for Chat. Notion writes use the official `mcp__claude_ai_Notion` connector. The morning trigger is a single `additionalContext` line injected by `session-start.mjs` on the first weekday session of the day (gated by `~/.codepresso/inbox-last-run.json`). Reminders for due-today + overdue tasks are appended to the existing `daily-chat-greeting.mjs` Chat message via `formatReminderSections`. The entire feature ships behind `inbox.enabled: false` until the setup wizard flips it.
+
+### 13. AWS MFA Session Helper (`aws-login`)
+
+When MFA enforcement is active on AWS IAM, every AWS channel (cloud-dev MCP, raw `aws` CLI, other AWS MCPs) needs a short-lived STS session token. A `credential_process` entry in `~/.aws/config [default]` serves a cached session file (`~/.codepresso/aws-session.json`), so all AWS tooling picks up the session automatically without per-tool changes.
+
+**Setup (one-time, `aws-cli setup`):** backs up `~/.aws/credentials` and `~/.aws/config`, relocates the `[default]` long-term key to `[codepresso-source]`, writes a `credential_process = node …/aws-cred-process.mjs` line into `[default]`, auto-detects the virtual TOTP MFA serial via `aws iam list-mfa-devices --profile codepresso-source`, and flips `aws.enabled` in `~/.codepresso/config.json`.
+
+**Reactive trigger:** Two detection points wake the `aws-login` skill without user remembering to do so:
+- **cloud-dev MCP** (`mcp/cloud-dev-server.mjs`): catch block checks `isMfaCredentialError(error)` and, when `aws.enabled` and cache is invalid, returns `MFA_REQUIRED: … Run /codepresso:aws-login`.
+- **PostToolUse:Bash hook** (`scripts/post-tool-git-watcher.mjs`): when the bash command matches `/aws /` and output matches `MFA_SIGNATURES`, injects an `additionalContext` prompt before the PR/session gate.
+
+**Session lifecycle:** 1-hour TTL (`sessionTtlSeconds: 3600`), 60-second expiry skew in `isSessionValid`. Cache written atomically with `chmod 600`. Secret values never appear on stdout; the `redact()` helper masks them in logs.
+
+**`aws.enabled` gate:** all MFA detection is skipped when `aws.enabled` is false (default), so teams not using MFA are unaffected.
 
 ### AIDLC Scaffolder (`aidlc-init` / `aidlc-doctor`)
 
@@ -242,6 +261,14 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
     "enabled": false,                              // Set true after `node scripts/wiki-cli.mjs init`
     "vaultPath": "~/Documents/Obsidian/llm-wiki",  // ~ expanded at use
     "autoFetch": true                              // Spawn detached git fetch on session start (set false to disable)
+  },
+  "aws": {
+    "enabled": false,                              // Flipped true by `aws-cli setup`
+    "sourceProfile": "codepresso-source",          // ~/.aws profile holding the long-term key
+    "mfaSerial": null,                             // ARN of the virtual TOTP device (auto-detected at setup)
+    "sessionTtlSeconds": 3600,                     // STS session duration (max 1h for most IAM configs)
+    "sessionFile": "~/.codepresso/aws-session.json", // Cached session credentials (chmod 600)
+    "region": "ap-northeast-2"                     // Default AWS region
   },
   "excludePatterns": [                             // Regex patterns (kept for future use)
     "^/",
