@@ -13,11 +13,14 @@ test('expandHome expands leading ~', () => {
 
 test('isSessionValid honors expiry minus skew', () => {
   const exp = new Date(Date.now() + 120000).toISOString(); // +2 min
-  assert.strictEqual(isSessionValid({ AccessKeyId: 'A', Expiration: exp }), true);
+  assert.strictEqual(isSessionValid({ AccessKeyId: 'A', SecretAccessKey: 'S', SessionToken: 'T', Expiration: exp }), true);
   const soon = new Date(Date.now() + 30000).toISOString();  // +30s, inside 60s skew
-  assert.strictEqual(isSessionValid({ AccessKeyId: 'A', Expiration: soon }), false);
+  assert.strictEqual(isSessionValid({ AccessKeyId: 'A', SecretAccessKey: 'S', SessionToken: 'T', Expiration: soon }), false);
   assert.strictEqual(isSessionValid(null), false);
   assert.strictEqual(isSessionValid({ Expiration: 'nope' }), false);
+  const future = new Date(Date.now() + 600000).toISOString();
+  assert.strictEqual(isSessionValid({ AccessKeyId: 'A', Expiration: future }), false); // missing secret/session
+  assert.strictEqual(isSessionValid({ AccessKeyId: 'A', SecretAccessKey: 'S', SessionToken: 'T', Expiration: future }), true);
 });
 
 test('writeCache writes atomically with 0600 and readCache roundtrips', () => {
@@ -59,6 +62,7 @@ test('redact masks secret-bearing keys', () => {
   assert.strictEqual(r.Expiration, 'E');
   assert.ok(!r.SecretAccessKey.includes('supersecretvalue'));
   assert.ok(r.SecretAccessKey.includes('REDACTED'));
+  assert.strictEqual(r.AccessKeyId, 'ASIAabcd1234');
 });
 
 test('shouldPromptMfa only fires on signature AND invalid cache', () => {

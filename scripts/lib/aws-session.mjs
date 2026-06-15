@@ -25,7 +25,7 @@ export function getSessionFile(cfg) {
 }
 
 export function isSessionValid(cache) {
-  if (!cache || !cache.AccessKeyId || !cache.Expiration) return false;
+  if (!cache || !cache.AccessKeyId || !cache.SecretAccessKey || !cache.SessionToken || !cache.Expiration) return false;
   const exp = new Date(cache.Expiration).getTime();
   if (isNaN(exp)) return false;
   return exp - Date.now() > EXPIRY_SKEW_MS;
@@ -64,6 +64,8 @@ export function parseStsSessionToken(input) {
 export function parseMfaSerial(input) {
   const obj = typeof input === 'string' ? JSON.parse(input) : input;
   const devices = (obj && obj.MFADevices) || [];
+  // Picks the first virtual TOTP device. During MFA rotation a user may briefly
+  // have two; setup should surface that case rather than relying on this default.
   const totp = devices.find((d) => typeof d.SerialNumber === 'string' && d.SerialNumber.includes(':mfa/'));
   return totp ? totp.SerialNumber : null;
 }
@@ -78,7 +80,7 @@ export function toCredentialProcessOutput(cache) {
   };
 }
 
-const SECRET_KEY = /SecretAccessKey|SessionToken|AccessKeyId|aws_secret|aws_access_key|token/i;
+const SECRET_KEY = /SecretAccessKey|SessionToken|aws_secret|aws_access_key/i;
 export function redact(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   const out = Array.isArray(obj) ? [] : {};
@@ -105,6 +107,9 @@ export function shouldPromptMfa(output, { cacheValid }) {
   return MFA_SIGNATURES.test(String(output || ''));
 }
 
+// Intentionally broader than MFA_SIGNATURES (includes bare AccessDenied): the MCP
+// caller gates this with an explicit cache-validity check, so a real authz denial
+// won't trigger a refresh prompt when a valid session already exists.
 export function isMfaCredentialError(error) {
   const text = `${(error && error.name) || ''} ${(error && error.message) || ''}`;
   return /CredentialsProviderError|ExpiredToken|ExpiredTokenException|TokenRefreshRequired|InvalidClientTokenId|UnrecognizedClient|with an explicit deny|AccessDenied/i.test(text);
