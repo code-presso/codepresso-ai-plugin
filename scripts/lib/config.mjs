@@ -86,6 +86,14 @@ const DEFAULT_CONFIG = {
     remote: null,                                // Optional git remote (e.g. private GitHub repo) for multi-machine sync
     autoFetch: true,                             // Spawn detached git fetch on session start (fetch-only, never auto-merges)
   },
+  aws: {
+    enabled: false,                                 // flipped true by `aws-cli setup`
+    sourceProfile: 'codepresso-source',
+    mfaSerial: null,                                // detected at setup, e.g. arn:aws:iam::ACCT:mfa/<name>
+    sessionTtlSeconds: 3600,
+    sessionFile: '~/.codepresso/aws-session.json',
+    region: 'ap-northeast-2',
+  },
   excludePatterns: [
     '^/',                              // All slash commands (/help, /status, /commit, etc.)
     '(executed|registered)',           // System execution messages
@@ -221,7 +229,7 @@ export function isExcluded(prompt, patterns) {
 export function validateConfig(config) {
   const warnings = [];
 
-  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'inbox', 'wiki', 'excludePatterns', 'debug'];
+  const KNOWN_KEYS = ['github', 'notion', 'deploy', 'epicDocs', 'cloudDev', 'googleChat', 'inbox', 'wiki', 'aws', 'excludePatterns', 'debug'];
   for (const key of Object.keys(config)) {
     if (!KNOWN_KEYS.includes(key)) {
       warnings.push(`Unknown config key: "${key}"`);
