@@ -3,7 +3,7 @@
  * No side-effects beyond file I/O. No network calls.
  */
 
-import { readFileSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, chmodSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 
@@ -39,9 +39,12 @@ export function readCache(file) {
   }
 }
 
-export function writeCache(file, data) {
+export function writeCache(file, cache) {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(data), { mode: 0o600 });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify(cache, null, 2), { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
   chmodSync(file, 0o600);
 }
 
