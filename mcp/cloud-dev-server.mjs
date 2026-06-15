@@ -11,6 +11,8 @@ import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadConfig } from '../scripts/lib/config.mjs';
+import { getSessionFile, readCache, isSessionValid, isMfaCredentialError } from '../scripts/lib/aws-session.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pluginRoot = join(__dirname, '..');
@@ -356,10 +358,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
     };
   } catch (error) {
+    const cfg = loadConfig();
+    const cacheValid = isSessionValid(readCache(getSessionFile(cfg)));
+    if (cfg.aws?.enabled && !cacheValid && isMfaCredentialError(error)) {
+      return {
+        content: [{ type: 'text', text: 'MFA_REQUIRED: AWS MFA session missing/expired. Run /codepresso:aws-login to refresh, then retry this tool.' }],
+        isError: true,
+      };
+    }
     const message = error.name === 'CredentialsProviderError'
-      ? 'AWS credentials not configured. Set up AWS CLI credentials or environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).'
+      ? 'AWS credentials not configured. Run /codepresso:aws-login (if MFA is enabled) or set up AWS CLI credentials.'
       : error.message;
-
     return {
       content: [{ type: 'text', text: `Error: ${message}` }],
       isError: true,
