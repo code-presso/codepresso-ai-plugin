@@ -18,6 +18,7 @@ import { loadConfig } from './lib/config.mjs';
 import { sendChatMessage } from './lib/gws.mjs';
 import { Client as NotionClient } from '@notionhq/client';
 import { formatReminderSections } from './lib/inbox-state.mjs';
+import { getMyTimedEvents, formatCalendarSection } from './lib/calendar.mjs';
 
 const log = createLogger('daily-chat-greeting');
 const GREETING_STATE_FILE = join(homedir(), '.codepresso', 'daily-greeting.json');
@@ -201,7 +202,7 @@ function formatTaskLine(t) {
 /**
  * Format the Google Chat message from tasks and GitHub PRs.
  */
-function formatMessage(tasks, prs, displayName) {
+function formatMessage(tasks, prs, displayName, calendarSection) {
   const inProgress = tasks.filter(t => isInProgress(t.status));
   const authored = prs?.authored || [];
   const reviewRequested = prs?.reviewRequested || [];
@@ -220,6 +221,11 @@ function formatMessage(tasks, prs, displayName) {
 
   lines.push(`📋 *${dateStr} (${dayStr})* 오늘의 작업 현황`);
   lines.push('');
+
+  if (calendarSection) {
+    lines.push(calendarSection);
+    lines.push('');
+  }
 
   lines.push('*진행 중인 작업 (Notion):*');
   if (inProgress.length > 0) {
@@ -298,9 +304,16 @@ async function main() {
   const activeTasks = (tasks || []).filter(t => !isCompleted(t.status));
   const prs = fetchGithubPrs(gitRoot);
 
+  const calendarEvents = getMyTimedEvents({ when: 'today', config });
+  const calendarSection = formatCalendarSection(calendarEvents, {
+    title: '오늘 일정',
+    emptyText: '_없음_',
+  });
+
   const hasContent = activeTasks.length > 0
     || (prs.authored && prs.authored.length > 0)
-    || (prs.reviewRequested && prs.reviewRequested.length > 0);
+    || (prs.reviewRequested && prs.reviewRequested.length > 0)
+    || calendarEvents.length > 0;
 
   if (!hasContent) {
     log.info('No tasks or PRs to report — skipping greeting');
@@ -308,7 +321,7 @@ async function main() {
     return;
   }
 
-  const { text: baseMessage, taskCount } = formatMessage(activeTasks, prs, displayName);
+  const { text: baseMessage, taskCount } = formatMessage(activeTasks, prs, displayName, calendarSection);
   let message = baseMessage;
 
   // Append overdue / due-today reminder sections (before motivational phrase)
