@@ -198,4 +198,18 @@ describe('inbox config defaults', () => {
     const warnings = validateConfig({ inbox: { enabled: 'yes' } });
     assert.ok(warnings.some((w) => w.includes('inbox.enabled') && w.includes('boolean')));
   });
+
+  describe('googleChat.calendar', () => {
+    it('defaults calendar to enabled with auto-detect and maxEvents 8', () => {
+      const cfg = loadConfig(process.cwd(), { globalConfigPath: '/no/such/codepresso-config.json' });
+      assert.equal(cfg.googleChat.calendar.enabled, true);
+      assert.equal(cfg.googleChat.calendar.calendarId, null);
+      assert.equal(cfg.googleChat.calendar.maxEvents, 8);
+    });
+
+    it('flags googleChat.calendar.maxEvents non-positive', () => {
+      const warnings = validateConfig({ googleChat: { calendar: { maxEvents: 0 } } });
+      assert.ok(warnings.some((w) => w.includes('googleChat.calendar.maxEvents')));
+    });
+  });
 });

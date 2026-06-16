@@ -54,6 +54,11 @@ const DEFAULT_CONFIG = {
     enabled: false,
     dailyGreeting: true,
     spaceId: null,                // Google Chat space ID (e.g., 'AAAAxxxxxxx')
+    calendar: {
+      enabled: true,              // show calendar sections (still requires googleChat.enabled)
+      calendarId: null,           // null = auto-detect primary; or explicit calendar id/summary
+      maxEvents: 8,               // cap lines per calendar section
+    },
   },
   inbox: {
     enabled: false,
@@ -295,6 +300,18 @@ export function validateConfig(config) {
     }
     if (config.googleChat.spaceId !== null && config.googleChat.spaceId !== undefined && typeof config.googleChat.spaceId !== 'string') {
       warnings.push(`googleChat.spaceId should be a string, got ${typeof config.googleChat.spaceId}`);
+    }
+    const cal = config.googleChat.calendar;
+    if (cal) {
+      if (typeof cal.enabled !== 'undefined' && typeof cal.enabled !== 'boolean') {
+        warnings.push(`googleChat.calendar.enabled should be boolean, got ${typeof cal.enabled}`);
+      }
+      if (cal.calendarId !== null && cal.calendarId !== undefined && typeof cal.calendarId !== 'string') {
+        warnings.push(`googleChat.calendar.calendarId should be a string, got ${typeof cal.calendarId}`);
+      }
+      if (typeof cal.maxEvents !== 'undefined' && (typeof cal.maxEvents !== 'number' || cal.maxEvents <= 0)) {
+        warnings.push(`googleChat.calendar.maxEvents should be a positive number, got ${cal.maxEvents}`);
+      }
     }
   }
 
