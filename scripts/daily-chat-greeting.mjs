@@ -344,6 +344,11 @@ async function main() {
   const phrase = generateDailyPhrase(taskCount);
   message = `${message}\n\n💬 _${phrase}_`;
 
+  if (process.env.CODEPRESSO_DRY_RUN) {
+    process.stdout.write(`-----CODEPRESSO_GREETING_START-----\n${message}\n-----CODEPRESSO_GREETING_END-----\n`);
+    return; // do not send, do not mark the day greeted
+  }
+
   try {
     sendChatMessage(spaceId, message);
     log.info(`Daily greeting sent to spaces/${spaceId}`);
