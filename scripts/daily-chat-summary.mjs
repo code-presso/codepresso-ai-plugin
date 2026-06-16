@@ -15,6 +15,7 @@ import { createLogger } from './lib/logger.mjs';
 import { getGitRoot } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { sendChatMessage } from './lib/gws.mjs';
+import { getMyTimedEvents, formatCalendarSection } from './lib/calendar.mjs';
 
 const log = createLogger('daily-chat-summary');
 
@@ -191,7 +192,7 @@ function formatPrLine(pr) {
   return `• [${prefix}] ${pr.title}\n  → ${pr.url}`;
 }
 
-function formatMessage({ displayName, summary, commits, merged, closedOnly, inProgress }) {
+function formatMessage({ displayName, summary, commits, merged, closedOnly, inProgress, calendarSection }) {
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
   const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -234,6 +235,11 @@ function formatMessage({ displayName, summary, commits, merged, closedOnly, inPr
     }
   }
 
+  if (calendarSection) {
+    lines.push('');
+    lines.push(calendarSection);
+  }
+
   return lines.join('\n').trim();
 }
 
@@ -270,7 +276,11 @@ async function main() {
     log.warn(`Notion fetch failed: ${err.message}`);
   }
 
-  const hasAnything = commits.length || merged.length || closedOnly.length || inProgress.length;
+  const calendarEvents = getMyTimedEvents({ when: 'tomorrow', config });
+  const calendarSection = formatCalendarSection(calendarEvents, { title: '내일 일정' });
+
+  const hasAnything = commits.length || merged.length || closedOnly.length
+    || inProgress.length || calendarEvents.length;
   if (!hasAnything) {
     log.info('No activity to summarize — skipping');
     return;
@@ -280,7 +290,7 @@ async function main() {
   const summary = runClaudeSummary(prompt)
     || fallbackSummary({ commits, merged, closedOnly, inProgress });
 
-  const message = formatMessage({ displayName, summary, commits, merged, closedOnly, inProgress });
+  const message = formatMessage({ displayName, summary, commits, merged, closedOnly, inProgress, calendarSection });
 
   if (process.env.CODEPRESSO_DRY_RUN) {
     process.stdout.write(`----- DRY RUN (no gws call) -----\n${message}\n----- END -----\n`);

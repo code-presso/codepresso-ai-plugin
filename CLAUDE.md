@@ -109,12 +109,14 @@ The plugin sends two Google Chat messages per workday to the configured space, b
 **Morning greeting (`daily-chat-greeting.mjs`)** — first weekday session of the day:
 - Triggered by `session-start.mjs` when `isWeekday() && isFirstSessionOfDay() && notionTasks`
 - Daily detection: `~/.codepresso/daily-greeting.json` (`{ lastDate: "YYYY-MM-DD" }`)
-- Content: in-progress Notion tasks, my open PRs, PRs awaiting my review, plus a Claude-generated (Haiku) motivational one-liner
+- Content: today's calendar meetings (`📅 오늘 일정`, shown right under the date header), in-progress Notion tasks, my open PRs, PRs awaiting my review, plus a Claude-generated (Haiku) motivational one-liner
 
 **Evening summary (`daily-chat-summary.mjs`)** — Mon–Fri at 18:03:
 - Scheduled by a session cron (`3 18 * * 1-5`) that fires `/codepresso:daily-summary`
-- Gathers: today's commits, today's merged/closed PRs, still-in-progress Notion tasks
-- Summarizes via `claude -p --model haiku` (deterministic fallback if `claude` is missing)
+- Gathers: today's commits, today's merged/closed PRs, still-in-progress Notion tasks, tomorrow's calendar meetings (`📅 내일 일정`, appended at the end)
+- Summarizes via `claude -p --model haiku` (deterministic fallback if `claude` is missing). Calendar data is **not** fed to the summary prompt — it is a deterministic appended block.
+
+**Calendar source**: both bookends read the user's **primary** Google Calendar via `gws calendar +agenda` (read-only) through `scripts/lib/calendar.mjs`. Only *timed* events on the primary calendar are shown — all-day events (휴가/OOO, on-call, holidays) and other calendars (room bookings) are filtered out by `filterMyTimedEvents` (rule: `start` contains `T` **and** `calendar === primary summary`). Controlled by `googleChat.calendar.{enabled,calendarId,maxEvents}`. `calendarId` (when set) must be the calendar's **summary/email**, not an opaque group id, because events are matched by their `calendar` summary field. Primary is auto-detected via `gws calendar calendarList list` when `calendarId` is null. Failure-safe: any `gws` error → section omitted, message still sends.
 
 **Config requirements**: `googleChat.enabled: true`, `googleChat.spaceId` set, `gws` authenticated.
 
@@ -244,7 +246,12 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
   "googleChat": {
     "enabled": false,                              // Enable Google Chat integration
     "dailyGreeting": true,                         // Send daily task summary on first session
-    "spaceId": null                                // Google Chat space ID (e.g., "AAAAxxxxxxx")
+    "spaceId": null,                               // Google Chat space ID (e.g., "AAAAxxxxxxx")
+    "calendar": {
+      "enabled": true,                             // Show calendar sections in greeting/summary (requires googleChat.enabled)
+      "calendarId": null,                          // null = auto-detect primary; or explicit calendar summary/email
+      "maxEvents": 8                               // Cap lines per calendar section
+    }
   },
   "inbox": {
     "enabled": false,
