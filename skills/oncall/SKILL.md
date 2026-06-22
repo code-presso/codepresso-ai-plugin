@@ -22,7 +22,7 @@ Show the current on-call schedule — pulled from DynamoDB (source of truth) wit
 ## Constants
 - DynamoDB table: `oncall-assignments-history`
 - AWS Region: `ap-northeast-2`
-- Google Calendar ID: `c_b96d007ccd3a348ceab92e4d7cab4be4ae911977da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com`
+- Google Calendar ID: `c_b96d007ccd3a348ceab92e4d7cab4be4ae91197da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com`
 - Engineers: <engineer>, <engineer>, <engineer>, <engineer>
 
 <Steps>

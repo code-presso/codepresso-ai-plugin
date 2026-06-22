@@ -59,7 +59,7 @@ CURRENT_ENV=$(aws lambda get-function-configuration \
 UPDATED_ENV=$(echo "$CURRENT_ENV" | python3 -c "
 import sys, json
 env = json.load(sys.stdin)
-env['GOOGLE_CALENDAR_ID'] = 'c_b96d007ccd3a348ceab92e4d7cab4be4ae911977da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com'
+env['GOOGLE_CALENDAR_ID'] = 'c_b96d007ccd3a348ceab92e4d7cab4be4ae91197da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com'
 env['GOOGLE_CREDENTIALS_SECRET'] = 'oncall-google-service-account'
 # BACKEND_ENGINEER_LIST: 매주 반드시 포함되어야 하는 백엔드 엔지니어 목록 (쉼표 구분)
 # 미설정 시 역할 구분 없이 누적 횟수 기반으로만 배정됩니다.

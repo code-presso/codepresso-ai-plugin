@@ -24,7 +24,7 @@ BACKEND_ENGINEERS = set(
 # Google Calendar 설정
 GOOGLE_CALENDAR_ID = os.environ.get(
     "GOOGLE_CALENDAR_ID",
-    "c_b96d007ccd3a348ceab92e4d7cab4be4ae911977da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com"
+    "c_b96d007ccd3a348ceab92e4d7cab4be4ae91197da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com"
 )
 GOOGLE_CREDENTIALS_SECRET = os.environ.get("GOOGLE_CREDENTIALS_SECRET", "oncall-google-service-account")
 
