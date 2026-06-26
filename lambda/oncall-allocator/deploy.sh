@@ -21,8 +21,19 @@ echo "=== Building Lambda deployment package ==="
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# Install dependencies
+# Install dependencies.
+# The Lambda runs on arm64 (see oncall-allocator template.yaml: Architectures: [arm64]).
+# Native deps (cryptography, pulled in by google-auth) ship as compiled wheels and MUST be
+# built for the Lambda's platform — aarch64 + the Lambda Python version — NOT the host.
+# Building on a different arch/OS (e.g. Windows or x86_64) produces a package that fails at
+# import and takes the whole function down, e.g.:
+#   Runtime.ImportModuleError: ... cannot open shared object file .../cryptography/.../_rust.abi3.so
+#   Runtime.ImportModuleError: cannot import name 'exceptions' from 'cryptography.hazmat.bindings._rust'
 pip install --target "$BUILD_DIR" \
+  --platform manylinux2014_aarch64 \
+  --implementation cp \
+  --python-version 3.12 \
+  --only-binary=:all: \
   google-api-python-client \
   google-auth \
   --quiet
