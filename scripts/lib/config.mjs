@@ -95,7 +95,7 @@ const DEFAULT_CONFIG = {
     enabled: false,                                 // flipped true by `aws-cli setup`
     sourceProfile: 'codepresso-source',
     mfaSerial: null,                                // detected at setup, e.g. arn:aws:iam::ACCT:mfa/<name>
-    sessionTtlSeconds: 3600,
+    sessionTtlSeconds: 14400,
     sessionFile: '~/.codepresso/aws-session.json',
     region: 'ap-northeast-2',
   },

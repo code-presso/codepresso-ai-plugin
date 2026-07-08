@@ -137,7 +137,7 @@ When MFA enforcement is active on AWS IAM, every AWS channel (cloud-dev MCP, raw
 - **cloud-dev MCP** (`mcp/cloud-dev-server.mjs`): catch block checks `isMfaCredentialError(error)` and, when `aws.enabled` and cache is invalid, returns `MFA_REQUIRED: … Run /codepresso:aws-login`.
 - **PostToolUse:Bash hook** (`scripts/post-tool-git-watcher.mjs`): when the bash command matches `/aws /` and output matches `MFA_SIGNATURES`, injects an `additionalContext` prompt before the PR/session gate.
 
-**Session lifecycle:** 1-hour TTL (`sessionTtlSeconds: 3600`), 60-second expiry skew in `isSessionValid`. Cache written atomically with `chmod 600`. Secret values never appear on stdout; the `redact()` helper masks them in logs.
+**Session lifecycle:** 4-hour TTL (`sessionTtlSeconds: 14400`), 60-second expiry skew in `isSessionValid`. Cache written atomically with `chmod 600`. Secret values never appear on stdout; the `redact()` helper masks them in logs.
 
 **`aws.enabled` gate:** all MFA detection is skipped when `aws.enabled` is false (default), so teams not using MFA are unaffected.
 
@@ -273,7 +273,7 @@ All state lives in `.codepresso/state/` with `codepresso-` prefix:
     "enabled": false,                              // Flipped true by `aws-cli setup`
     "sourceProfile": "codepresso-source",          // ~/.aws profile holding the long-term key
     "mfaSerial": null,                             // ARN of the virtual TOTP device (auto-detected at setup)
-    "sessionTtlSeconds": 3600,                     // STS session duration (max 1h for most IAM configs)
+    "sessionTtlSeconds": 14400,                    // STS session duration (GetSessionToken allows up to 36h for IAM users)
     "sessionFile": "~/.codepresso/aws-session.json", // Cached session credentials (chmod 600)
     "region": "ap-northeast-2"                     // Default AWS region
   },

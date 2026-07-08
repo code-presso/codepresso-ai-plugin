@@ -5,7 +5,7 @@ description: Refresh the short-lived AWS MFA session for the Codepresso plugin. 
 
 # aws-login
 
-Mint a 1-hour MFA-backed AWS session and cache it so every AWS channel works.
+Mint a 4-hour MFA-backed AWS session and cache it so every AWS channel works.
 
 ## When to invoke
 - A tool returned `MFA_REQUIRED`, or a `aws` command failed with `explicit deny` / `ExpiredToken` / `CredentialsProviderError`.

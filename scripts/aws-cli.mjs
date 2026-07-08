@@ -53,7 +53,7 @@ function cmdRefresh() {
       '--profile', aws.sourceProfile || 'codepresso-source',
       '--serial-number', aws.mfaSerial,
       '--token-code', code,
-      '--duration-seconds', String(aws.sessionTtlSeconds || 3600),
+      '--duration-seconds', String(aws.sessionTtlSeconds || 14400),
     ]);
     const cache = parseStsSessionToken(sts);
     writeCache(getSessionFile(cfg), cache);
@@ -103,7 +103,7 @@ function cmdSetup() {
   const globalCfgPath = join(homedir(), '.codepresso', 'config.json');
   mkdirSync(dirname(globalCfgPath), { recursive: true });
   const existing = existsSync(globalCfgPath) ? JSON.parse(readFileSync(globalCfgPath, 'utf-8')) : {};
-  existing.aws = { ...(existing.aws || {}), enabled: !!mfaSerial, sourceProfile, mfaSerial, sessionTtlSeconds: aws.sessionTtlSeconds || 3600, sessionFile: aws.sessionFile || '~/.codepresso/aws-session.json', region };
+  existing.aws = { ...(existing.aws || {}), enabled: !!mfaSerial, sourceProfile, mfaSerial, sessionTtlSeconds: aws.sessionTtlSeconds || 14400, sessionFile: aws.sessionFile || '~/.codepresso/aws-session.json', region };
   writeFileSync(globalCfgPath, JSON.stringify(existing, null, 2));
 
   console.log(JSON.stringify({ ok: true, mfaSerial, enabled: !!mfaSerial, credProcess: credProcessScript, backups: [`${credPath}.codepresso.bak`, `${confPath}.codepresso.bak`], note: mfaSerial ? null : 'No virtual TOTP found — register one, then run: aws-cli detect-mfa && aws-cli setup', warning: defaultKeyRemains ? 'A [default] static key remains in ~/.aws/credentials and takes precedence over the credential_process profile — MFA is NOT enforced for the plugin until it is moved/removed (e.g. [codepresso-source] may already exist).' : null }));
