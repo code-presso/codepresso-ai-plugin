@@ -13,6 +13,14 @@ Trigger the on-call allocator Lambda to produce a fresh monthly rotation (Primar
 - Start of month and the next month's rotation hasn't been allocated yet
 </Use_When>
 
+<Warning>
+EventBridge rule `oncall-monthly-schedule` (cron: 1st of every month, 09:00 UTC) automatically
+invokes this same Lambda for the month that just started. The Lambda has no idempotency guard —
+it regenerates from scratch and overwrites DynamoDB + Calendar. **Do NOT manually generate a
+month before its 1st day**: the cron will clobber your plan with a different one (this caused
+the July 2026 DDB/calendar divergence). Manual runs are only for recovery AFTER the cron ran.
+</Warning>
+
 <Do_Not_Use_When>
 - Only swapping a few weeks (use `codepresso:oncall-swap`)
 - Only re-syncing existing DDB data to Calendar (use `codepresso:oncall-sync-calendar`)
@@ -23,6 +31,8 @@ Trigger the on-call allocator Lambda to produce a fresh monthly rotation (Primar
 - AWS Region: `ap-northeast-2`
 - DynamoDB table: `oncall-assignments-history`
 - Google Calendar ID: `c_b96d007ccd3a348ceab92e4d7cab4be4ae91197da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com`
+- Content team (컨텐츠, 1 per week via `CONTENT_ENGINEERS` env): 이상윤, 양지현, 문혜원, 이선영
+- Dry run: pass `{"time":"...","dry_run":true}` in the Lambda payload to preview a plan without touching DDB/Calendar/Chat
 
 <Steps>
 1. Ask the user which month to generate (default: next month).
@@ -47,14 +57,13 @@ Trigger the on-call allocator Lambda to produce a fresh monthly rotation (Primar
 
 4. Show the generated plan from the Lambda response.
 
-5. After Lambda completes, sync to Google Calendar:
-   - For each week in the plan, create an all-day event (Monday to Sunday) on the shared calendar using `gcal_create_event`:
-     - summary: `온콜: {primary} (주) / {secondary} (부)`
-     - description: `주 담당자: {primary}\n부 담당자: {secondary}`
-     - calendarId: the Google Calendar ID above
-     - start/end: use `date` format (all-day event) for Monday to Sunday
-     - colorId: "11" (Tomato) for primary visibility
-   - Before creating, check if events already exist for those dates and delete them first using `gcal_list_events` + `gcal_delete_event`.
+5. After Lambda completes, VERIFY (do not create) the Google Calendar events:
+   - The Lambda itself syncs the calendar via its service account — do NOT create events here,
+     or the calendar and DynamoDB can diverge on the next automated run.
+   - Use `gcal_list_events` (calendarId above, q: "온콜", target month range) and confirm each
+     week's event matches the Lambda's returned plan.
+   - Only if events are missing or wrong (Lambda sync failure — check CloudWatch logs for
+     `Failed to initialize Google Calendar service`), fall back to `codepresso:oncall-sync-calendar`.
 
 6. Send confirmation to the user with the full schedule table.
 </Steps>
