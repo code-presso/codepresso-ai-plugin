@@ -21,12 +21,17 @@ BACKEND_ENGINEERS = set(
     e.strip() for e in os.environ.get("BACKEND_ENGINEERS", "").split(",") if e.strip()
 )
 
+# 컨텐츠 팀 목록 (매주 1명, 플랫폼 주/부와 별도 로테이션)
+CONTENT_ENGINEERS = [
+    e.strip() for e in os.environ.get("CONTENT_ENGINEERS", "").split(",") if e.strip()
+]
+
 # Google Calendar 설정
 GOOGLE_CALENDAR_ID = os.environ.get(
     "GOOGLE_CALENDAR_ID",
     "c_b96d007ccd3a348ceab92e4d7cab4be4ae91197da9f383a7a7bb0e4bd74f12f1@group.calendar.google.com"
 )
-GOOGLE_CREDENTIALS_SECRET = os.environ.get("GOOGLE_CREDENTIALS_SECRET", "oncall-google-service-account")
+GOOGLE_CREDENTIALS_SECRET = os.environ.get("GOOGLE_CREDENTIALS_SECRET", "sentinel/google-chat-sa")
 
 
 def get_google_calendar_service():
@@ -56,10 +61,11 @@ def get_weeks_in_month(year, month):
     return weeks
 
 
-def get_historical_counts(engineers):
-    """DynamoDB에서 엔지니어별 누적 주/부 담당 횟수를 조회합니다."""
+def get_historical_counts(engineers, content_engineers=()):
+    """DynamoDB에서 엔지니어별 누적 주/부/컨텐츠 담당 횟수를 조회합니다."""
     primary_counts = {e: 0 for e in engineers}
     secondary_counts = {e: 0 for e in engineers}
+    content_counts = {e: 0 for e in content_engineers}
 
     try:
         response = oncall_table.scan()
@@ -67,7 +73,10 @@ def get_historical_counts(engineers):
             for item in response.get("Items", []):
                 engineer = item.get("Engineer")
                 role = item.get("Role")
-                if engineer in primary_counts:
+                if role == "Content":
+                    if engineer in content_counts:
+                        content_counts[engineer] += 1
+                elif engineer in primary_counts:
                     if role == "Primary":
                         primary_counts[engineer] += 1
                     elif role == "Secondary":
@@ -78,10 +87,10 @@ def get_historical_counts(engineers):
     except Exception as e:
         print(f"Warning: Could not fetch historical counts from DynamoDB: {e}")
 
-    return primary_counts, secondary_counts
+    return primary_counts, secondary_counts, content_counts
 
 
-def generate_monthly_plan(engineers, backend_engineers, year, month):
+def generate_monthly_plan(engineers, backend_engineers, year, month, content_engineers=None):
     """월간 온콜 계획을 생성합니다.
 
     배정 규칙 (역할 구분이 설정된 경우):
@@ -95,14 +104,20 @@ def generate_monthly_plan(engineers, backend_engineers, year, month):
                 (동점이면 누적 주 담당 횟수로 비교).
 
     역할 구분이 없는 경우: 전체 누적 주 담당 횟수가 가장 적은 엔지니어 선정 (기존 방식).
+
+    컨텐츠 팀(content_engineers)이 설정된 경우: 플랫폼 주/부와 별도로
+    누적 컨텐츠 담당 횟수가 가장 적은 1명을 매주 추가 배정합니다.
     """
     weeks = get_weeks_in_month(year, month)
     plan = []
+    content_engineers = list(content_engineers or [])
 
-    # 누적 횟수 조회 — 주/부 역할을 분리해서 비교하는 것이 공정 배분의 핵심
-    primary_counts, secondary_counts = get_historical_counts(engineers)
+    # 누적 횟수 조회 — 주/부/컨텐츠 역할을 분리해서 비교하는 것이 공정 배분의 핵심
+    primary_counts, secondary_counts, content_counts = get_historical_counts(engineers, content_engineers)
     print(f"Historical primary counts: {primary_counts}")
     print(f"Historical secondary counts: {secondary_counts}")
+    if content_engineers:
+        print(f"Historical content counts: {content_counts}")
 
     use_role_constraint = bool(backend_engineers)
     backend_list = [e for e in engineers if e in backend_engineers] if use_role_constraint else []
@@ -140,17 +155,25 @@ def generate_monthly_plan(engineers, backend_engineers, year, month):
         # 부 담당자: 누적 '부 담당' 횟수 기준 오름차순, 동점이면 '주 담당' 횟수로 비교
         secondary = min(candidates, key=lambda e: (secondary_counts[e], primary_counts[e]))
 
+        # 컨텐츠 담당자: 누적 컨텐츠 담당 횟수가 가장 적은 엔지니어 (동점이면 목록 순)
+        content = None
+        if content_engineers:
+            content = min(content_engineers, key=lambda e: content_counts[e])
+
         plan.append({
             "week": f"{start_date.strftime('%Y.%m.%d')} ~ {end_date.strftime('%Y.%m.%d')}",
             "start_date": start_date.strftime('%Y-%m-%d'),
             "end_date": (end_date + timedelta(days=1)).strftime('%Y-%m-%d'),
             "primary": primary,
-            "secondary": secondary
+            "secondary": secondary,
+            "content": content
         })
 
         # 이번 달 내 다음 주 배정을 위해 누적 횟수 반영
         primary_counts[primary] += 1
         secondary_counts[secondary] += 1
+        if content is not None:
+            content_counts[content] += 1
 
     return plan
 
@@ -190,13 +213,19 @@ def sync_to_google_calendar(monthly_plan, year, month):
 
     # 새 이벤트 생성
     for week_plan in monthly_plan:
+        summary = f"온콜: {week_plan['primary']} (주) / {week_plan['secondary']} (부)"
+        description = (
+            f"주 담당자: {week_plan['primary']}\n"
+            f"부 담당자: {week_plan['secondary']}\n"
+        )
+        if week_plan.get("content"):
+            summary += f" / {week_plan['content']} (컨텐츠)"
+            description += f"컨텐츠 담당자: {week_plan['content']}\n"
+        description += f"\n기간: {week_plan['week']}"
+
         event_body = {
-            "summary": f"온콜: {week_plan['primary']} (주) / {week_plan['secondary']} (부)",
-            "description": (
-                f"주 담당자: {week_plan['primary']}\n"
-                f"부 담당자: {week_plan['secondary']}\n\n"
-                f"기간: {week_plan['week']}"
-            ),
+            "summary": summary,
+            "description": description,
             "start": {
                 "date": week_plan["start_date"],
                 "timeZone": "Asia/Seoul"
@@ -233,9 +262,10 @@ def send_google_chat_notification(monthly_plan, year, month):
 
     plan_details = []
     for week_plan in monthly_plan:
-        plan_details.append(
-            f"*{week_plan['week']}*\n- 주 담당자: {week_plan['primary']}\n- 부 담당자: {week_plan['secondary']}"
-        )
+        detail = f"*{week_plan['week']}*\n- 주 담당자: {week_plan['primary']}\n- 부 담당자: {week_plan['secondary']}"
+        if week_plan.get("content"):
+            detail += f"\n- 컨텐츠 담당자: {week_plan['content']}"
+        plan_details.append(detail)
 
     plan_details_str = "\n\n".join(plan_details)
 
@@ -272,8 +302,10 @@ def lambda_handler(event, context):
 
     event 파라미터:
     - time (str, optional): 대상 월의 기준 시간 (ISO 8601). 미설정 시 현재 시간 사용.
+    - dry_run (bool, optional): true면 계획만 생성해 반환 (DDB/캘린더/챗 미변경).
     """
     print("Starting monthly on-call allocation...")
+    dry_run = bool(event.get("dry_run"))
 
     if not ENGINEERS or len(ENGINEERS) < 2:
         print("Error: ENGINEER_LIST environment variable must contain at least 2 engineers.")
@@ -294,8 +326,15 @@ def lambda_handler(event, context):
     year, month = execution_time.year, execution_time.month
 
     # 월간 계획 생성
-    monthly_plan = generate_monthly_plan(ENGINEERS, BACKEND_ENGINEERS, year, month)
+    monthly_plan = generate_monthly_plan(ENGINEERS, BACKEND_ENGINEERS, year, month, CONTENT_ENGINEERS)
     print(f"Generated monthly plan for {year}-{month}: {monthly_plan}")
+
+    if dry_run:
+        print("Dry run — skipping DynamoDB write, calendar sync, and chat notification.")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "Dry run — no changes made.", "plan": monthly_plan})
+        }
 
     # DynamoDB에 결과 저장
     try:
@@ -304,6 +343,8 @@ def lambda_handler(event, context):
                 assignment_date = datetime.strptime(week_plan['week'].split(' ~ ')[0], '%Y.%m.%d').isoformat()
                 batch.put_item(Item={"AssignmentDate": f"{assignment_date}-primary", "Engineer": week_plan['primary'], "Role": "Primary"})
                 batch.put_item(Item={"AssignmentDate": f"{assignment_date}-secondary", "Engineer": week_plan['secondary'], "Role": "Secondary"})
+                if week_plan.get("content"):
+                    batch.put_item(Item={"AssignmentDate": f"{assignment_date}-content", "Engineer": week_plan['content'], "Role": "Content"})
         print("Successfully saved monthly assignments to DynamoDB.")
     except Exception as e:
         print(f"Error saving assignments to DynamoDB: {e}")

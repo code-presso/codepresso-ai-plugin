@@ -38,8 +38,9 @@ Show the current on-call schedule — pulled from DynamoDB (source of truth) wit
    Replace `YYYY-MM` with the current year-month.
 
 3. Parse the results and build a weekly schedule table:
-   - Group by week (strip `-primary` / `-secondary` suffix from AssignmentDate)
-   - Show Primary and Secondary engineer for each week
+   - Group by week (strip `-primary` / `-secondary` / `-content` suffix from AssignmentDate)
+   - Show Primary, Secondary, and Content engineer for each week
+     (Content = 컨텐츠 팀 로테이션, from 2026-07-20; weeks before that have no content row)
    - **Highlight the current week** based on today's date
 
 4. Also try to read upcoming events from Google Calendar using `gcal_list_events` with:
