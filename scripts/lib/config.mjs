@@ -76,7 +76,12 @@ const DEFAULT_CONFIG = {
         maxPerSpace: 20,
       },
     },
-    ignoreSenders: ['noreply@', 'notifications@github\\.com', 'no-reply@'],
+    // Matched as regexes against the raw From address.
+    // Keep these anchored to the *local part* so they can't swallow real people:
+    // a bare 'noreply@' also matches chat-noreply@google.com (Chat @-mention
+    // digests) and review_requested@noreply.github.com, which are action items.
+    // The [-_.]? alternation covers no_reply@ / no-reply@ / no.reply@ variants.
+    ignoreSenders: ['^no[-_.]?reply@', '^updates-noreply@', '^notify@mail\\.notion\\.so'],
     classifier: { maxCandidatesPerScan: 10 },
     notion: {
       taskDatabaseId: null,
