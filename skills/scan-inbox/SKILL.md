@@ -34,9 +34,11 @@ If `config.enabled` is false, abort with the message above.
 
 ### Step 2 — Fetch Gmail (if `config.sources.gmail.enabled`)
 
-Use `mcp__claude_ai_Gmail` to list messages matching `config.sources.gmail.query`, constrained to the last `config.sources.gmail.lookbackHours` hours. Cap at `config.sources.gmail.maxResults`.
+Use `mcp__claude_ai_Gmail__search_threads` with `config.sources.gmail.query`, `pageSize` = `config.sources.gmail.maxResults`, and `view: "THREAD_VIEW_MINIMAL"`.
 
-For each message capture: `id`, `from`, `subject`, `snippet`, `permalink`.
+Bound the window with an explicit `after:YYYY/MM/DD` term, computed as the **calendar date** of `now - lookbackHours`. Do NOT use `newer_than:1d`: Gmail rounds it to whole days and silently drops part of the intended window — a 24h scan run in the evening returned 5 threads where `after:` returned 10, hiding a deadline-bearing AWS notice.
+
+`search_threads` returns *threads*, not messages, and a thread's `id` is the id of its first message. For each thread, walk `messages[]` and capture per message: `id` (the message id, which is what `seen` tracks), `from`, `subject`, `snippet`, `permalink`. A multi-message thread contributes multiple candidates; taking only the thread-level id loses every reply after the first.
 
 If the connector returns "not authenticated", skip and emit `🔐 Gmail connector not authenticated — run mcp__claude_ai_Gmail__authenticate to enable.`
 
@@ -48,7 +50,7 @@ Compute `sinceIso = now - lookbackHours`. Run:
 node -e "import('./scripts/lib/gws.mjs').then(m => { const out = m.fetchChatUnread({ spaceIds: <JSON of space IDs>, sinceIso: '<sinceIso>', maxPerSpace: <maxPerSpace> }); process.stdout.write(JSON.stringify(out)); })"
 ```
 
-If the result is `[]` due to gws issues, emit `🔐 gws CLI unavailable — Chat fetch skipped.`
+`fetchChatUnread` throws if *every* space failed (broken CLI contract, missing auth, `gws` not installed) and returns partial results if only some failed. On a throw, emit `🔐 gws CLI unavailable — Chat fetch skipped.` and continue with Gmail. A plain `[]` now genuinely means "no new messages" — do not report it as an error.
 
 ### Step 4 — Filter & dedup
 
@@ -56,6 +58,17 @@ Combine Gmail + Chat into one candidate list. Drop a message if:
 - Its `id` is in `seen.gmail` or `seen.chat`.
 - Its `from` matches any pattern in `config.ignoreSenders` (regex).
 - Gmail header `Auto-Submitted` is present.
+
+**Do not widen `ignoreSenders` to whole notification domains.** `notifications@github.com` carries both pure noise (CI runs, pushes, merge events) and real action items, distinguished by the Cc marker, not the sender:
+
+| Cc marker | Meaning | Keep? |
+|---|---|---|
+| `review_requested@noreply.github.com` | a review is assigned to you | ✅ |
+| `approval_requested@noreply.github.com` | a deployment awaits your approval | ✅ |
+| `mention@noreply.github.com` | you were @-mentioned | ✅ |
+| `ci_activity@`, `push@`, `author@`, `comment@`, `subscribed@` | activity feed | ❌ |
+
+Let these reach the classifier (Step 7) and lean on the Cc marker there. Blanket-filtering the sender is what previously made every review request invisible.
 
 ### Step 5 — Add leftover candidates
 

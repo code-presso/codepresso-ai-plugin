@@ -64,22 +64,34 @@ export function fetchChatUnread({ spaceIds, sinceIso, maxPerSpace, runner = defa
   const scannedAt = new Date().toISOString();
 
   const results = [];
+  let attempted = 0;
+  let failed = 0;
   for (const spaceId of spaceIds) {
     // Fix 1 — shell injection defense: validate spaceId before interpolating
     if (!/^[A-Za-z0-9_-]+$/.test(spaceId)) {
       logger.warn(`fetchChatUnread: skipping invalid spaceId "${spaceId}"`);
       continue;
     }
+    attempted += 1;
 
-    const filter = `createTime > "${sinceIso}"`;
-    const cmd =
-      `gws chat spaces messages list --parent "spaces/${spaceId}" ` +
-      `--filter '${filter}' --page-size ${maxPerSpace} --format json`;
+    // The gws CLI takes every URL/query parameter through a single --params JSON
+    // blob; it has no --parent/--filter/--page-size flags. Passing those as bare
+    // flags makes gws exit non-zero ("unexpected argument '--parent' found"),
+    // which this loop would then swallow as "no messages".
+    // spaceId and sinceIso are both validated above, so neither can contain a
+    // single quote that would break out of the shell quoting below.
+    const params = JSON.stringify({
+      parent: `spaces/${spaceId}`,
+      filter: `createTime > "${sinceIso}"`,
+      pageSize: maxPerSpace,
+    });
+    const cmd = `gws chat spaces messages list --params '${params}' --format json`;
     let raw;
     try {
       raw = runner(cmd);
     } catch (err) {
       // Fix 2 — log runner failures instead of swallowing silently
+      failed += 1;
       logger.warn(`fetchChatUnread: runner failed for spaces/${spaceId} — ${err.message}`);
       continue;
     }
@@ -88,6 +100,7 @@ export function fetchChatUnread({ spaceIds, sinceIso, maxPerSpace, runner = defa
       parsed = JSON.parse(raw || '{}');
     } catch (err) {
       // Fix 2 — log parse failures instead of swallowing silently
+      failed += 1;
       logger.warn(`fetchChatUnread: JSON parse failed for spaces/${spaceId} — ${err.message}`);
       continue;
     }
@@ -104,6 +117,16 @@ export function fetchChatUnread({ spaceIds, sinceIso, maxPerSpace, runner = defa
         scannedAt, // Fix 3 — reuse single timestamp
       });
     }
+  }
+
+  // A total wipeout means the CLI contract is broken (wrong flags, missing auth,
+  // gws not installed) — not "the spaces were quiet". Returning [] there is how a
+  // stale --parent/--filter invocation went unnoticed across every space for weeks.
+  // Partial failures stay tolerated: one 403 space shouldn't sink the whole scan.
+  if (attempted > 0 && failed === attempted) {
+    throw new Error(
+      `fetchChatUnread: all ${attempted} space(s) failed — gws CLI is unusable, not merely empty. See warnings above.`,
+    );
   }
   return results;
 }
