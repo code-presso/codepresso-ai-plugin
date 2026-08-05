@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createLogger } from './lib/logger.mjs';
+import { localDateStr } from './lib/dates.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { sendChatMessage } from './lib/gws.mjs';
 import { Client as NotionClient } from '@notionhq/client';
@@ -263,7 +264,7 @@ function formatMessage(tasks, prs, displayName, calendarSection) {
 function updateLastDate() {
   try {
     mkdirSync(join(homedir(), '.codepresso'), { recursive: true });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     writeFileSync(GREETING_STATE_FILE, JSON.stringify({ lastDate: today }, null, 2), 'utf-8');
   } catch (err) {
     log.error(`Failed to update daily-greeting state: ${err.message}`);

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from './lib/config.mjs';
+import { localDateStr } from './lib/dates.mjs';
 import { WIKI_STATUS_FILE } from './lib/wiki-state.mjs';
 
 const cwd = process.cwd();
@@ -62,7 +63,7 @@ const FILE_MAP = [
 ];
 
 function scaffold(vault) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr();
   for (const dir of ['sources', 'pages', '.obsidian']) {
     mkdirSync(join(vault, dir), { recursive: true });
   }

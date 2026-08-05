@@ -15,6 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { localDateStr } from "./lib/dates.mjs";
 
 const TABLE = "oncall-assignments-history";
 const REGION = "ap-northeast-2";
@@ -79,7 +80,7 @@ function fetchAssignments(monthPrefix) {
 function expectedEvent(monday, { primary, secondary, content }) {
   const start = new Date(`${monday}T00:00:00`);
   const end = new Date(start); end.setDate(end.getDate() + 7);
-  const endStr = end.toISOString().slice(0, 10);
+  const endStr = localDateStr(end);
   const weekEnd = new Date(start); weekEnd.setDate(weekEnd.getDate() + 6);
   const fmt = (d) => `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
   let summary = `온콜: ${primary} (주) / ${secondary} (부)`;

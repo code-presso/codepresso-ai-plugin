@@ -13,6 +13,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { join, basename } from 'node:path';
+import { localDateStr } from './lib/dates.mjs';
 import { loadConfig } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
 import { getGitRoot } from './lib/git-utils.mjs';
@@ -25,18 +26,6 @@ const log = createLogger('daily-chat-summary');
 function isWeekday() {
   const dow = new Date().getDay();
   return dow >= 1 && dow <= 5;
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function todayLocalDateStr() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 function runSafe(cmd, args, opts = {}) {
@@ -62,7 +51,7 @@ function todaysCommitsByRepo(gitRoot, email) {
   const repos = ['.'];
   const subs = runSafe('git', ['-C', gitRoot, 'submodule', '--quiet', 'foreach', 'echo $sm_path']);
   if (subs) repos.push(...subs.split('\n').filter(Boolean));
-  const since = `${todayLocalDateStr()} 00:00:00`;
+  const since = `${localDateStr()} 00:00:00`;
   const byRepo = {};
   for (const repo of repos) {
     const out = runSafe('git', [
@@ -102,7 +91,7 @@ function ghSearchPrs(args) {
 }
 
 function todaysPrs() {
-  const day = todayIso();
+  const day = localDateStr();
   const merged = ghSearchPrs([
     '--author', '@me',
     '--merged-at', day,
@@ -154,7 +143,7 @@ function buildClaudePrompt({ displayName, commitsByRepo, merged, opened, closedO
   lines.push('- 인용구, 코드블록, 서두/말미 설명 없이 메시지 본문만 출력해');
   lines.push('');
   if (displayName) lines.push(`개발자: ${displayName}`);
-  lines.push(`날짜: ${todayLocalDateStr()}`);
+  lines.push(`날짜: ${localDateStr()}`);
   lines.push('');
   lines.push('오늘의 커밋 (리포별):');
   const repos = Object.keys(commitsByRepo);

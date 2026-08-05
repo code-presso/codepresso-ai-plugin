@@ -8,6 +8,7 @@
 import { readStdin } from './lib/stdin.mjs';
 import { loadConfig, ensureSetup, getStateDir } from './lib/config.mjs';
 import { createLogger } from './lib/logger.mjs';
+import { localDateStr } from './lib/dates.mjs';
 import { getCurrentBranch, findPrForBranch, isMainBranch, getHeadCommit, getGitRoot, listSubmodules } from './lib/git-utils.mjs';
 import { fetchNotionTasksStructured } from './lib/notion-tasks.mjs';
 import { fetchSprintWithEpics } from './lib/sprint-context.mjs';
@@ -45,7 +46,7 @@ const log = createLogger('session-start');
 function isFirstSessionOfDay() {
   try {
     const state = JSON.parse(readFileSync(GREETING_STATE_FILE, 'utf-8'));
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     return state.lastDate !== today;
   } catch {
     // File doesn't exist or is corrupted — treat as first session
