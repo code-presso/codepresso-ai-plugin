@@ -1,10 +1,10 @@
 ---
 name: daily-summary
-description: Evening summary — summarize today's commits, merged/closed PRs, and in-progress Notion tasks, then send to Google Chat
+description: Evening summary — topic-grouped digest of today's commits, PRs, in-progress Notion tasks, and today's meetings, sent to Google Chat
 ---
 
 <Purpose>
-Send an end-of-day Google Chat message summarizing today's commits, merged/closed PRs, and still-in-progress Notion tasks.
+Send an end-of-day Google Chat message with a topic-grouped digest of today's commits (root repo + submodules), merged/opened PRs, still-in-progress Notion tasks, plus today's meetings and tomorrow's schedule.
 Uses the local `claude` CLI (Haiku) to produce the narrative summary.
 Delivers via the `gws` CLI (Google Workspace CLI) as the authenticated user.
 Designed to fire automatically Mon–Fri at 18:00 via session cron; also runnable manually.
